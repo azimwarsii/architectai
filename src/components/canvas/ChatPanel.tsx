@@ -3,13 +3,14 @@ import { useChat, type Message } from 'ai/react'
 import { useEffect, useRef } from 'react'
 import type { CanvasNode, Project, AISuggestion } from '@/types'
 import { createClient } from '@/lib/supabase/client'
-import { X, ArrowUp } from 'lucide-react'
+import { X, ArrowUp, FileText } from 'lucide-react'
 
 interface Props {
   node: CanvasNode
   project: Project
   onClose: () => void
   onNodeUpdate: (node: CanvasNode) => void
+  onOpenEvidence?: () => void
 }
 
 const nodeTypeColor: Record<string, string> = {
@@ -23,7 +24,7 @@ const nodeTypeColor: Record<string, string> = {
   evidence:   '#9ca3af',
 }
 
-export function ChatPanel({ node, project, onClose, onNodeUpdate }: Props) {
+export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence }: Props) {
   const supabase = createClient()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -99,10 +100,10 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate }: Props) {
 
       {/* Focused node badge */}
       <div className="px-4 py-2.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.015)' }}>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px]" style={{ color: 'rgba(161,161,170,0.5)' }}>Focused on</span>
           <div
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md"
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md flex-1 min-w-0"
             style={{ background: 'rgba(255,255,255,0.06)' }}
           >
             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
@@ -110,6 +111,20 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate }: Props) {
               {node.title}
             </span>
           </div>
+          {onOpenEvidence && (
+            <button
+              type="button"
+              onClick={onOpenEvidence}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors"
+              style={{ color: 'rgba(161,161,170,0.7)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = 'rgba(228,228,231,0.9)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(161,161,170,0.7)' }}
+              title="Open evidence"
+            >
+              <FileText className="w-3 h-3" />
+              Evidence {node.evidence.length > 0 && `(${node.evidence.length})`}
+            </button>
+          )}
         </div>
       </div>
 
