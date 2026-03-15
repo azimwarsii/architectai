@@ -1,9 +1,9 @@
 'use client'
 import { useChat, type Message } from 'ai/react'
-import { useEffect, useRef } from 'react'
-import type { CanvasNode, Project, AISuggestion } from '@/types'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import type { CanvasNode, Project, AISuggestion, Collaborator, NodeMessage } from '@/types'
 import { createClient } from '@/lib/supabase/client'
-import { X, ArrowUp, FileText } from 'lucide-react'
+import { X, ArrowUp, FileText, Loader2 } from 'lucide-react'
 
 interface Props {
   node: CanvasNode
@@ -11,6 +11,8 @@ interface Props {
   onClose: () => void
   onNodeUpdate: (node: CanvasNode) => void
   onOpenEvidence?: () => void
+  collaborators?: Collaborator[]
+  onTypingChange?: (isTyping: boolean) => void
 }
 
 const nodeTypeColor: Record<string, string> = {
@@ -24,9 +26,109 @@ const nodeTypeColor: Record<string, string> = {
   evidence:   '#9ca3af',
 }
 
-export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence }: Props) {
+export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence, collaborators, onTypingChange }: Props) {
   const supabase = createClient()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [isUserTyping, setIsUserTyping] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(true)
+  const [initialMessages, setInitialMessages] = useState<Message[]>([])
+  const lastSavedMessageRef = useRef<string | null>(null)
+
+  // Get collaborators who are typing on this node
+  const typingCollaborators = (collaborators || []).filter(
+    c => c.isTyping && c.activeNodeId === node.id
+  )
+
+  // Load message history from database
+  useEffect(() => {
+    async function loadHistory() {
+      setLoadingHistory(true)
+      try {
+        const { data: history, error } = await supabase
+          .from('node_messages')
+          .select('*')
+          .eq('node_id', node.id)
+          .order('created_at', { ascending: true })
+
+        if (error) {
+          console.error('Failed to load message history:', error)
+          setLoadingHistory(false)
+          return
+        }
+
+        if (history && history.length > 0) {
+          const loadedMessages: Message[] = history.map((m: NodeMessage) => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            createdAt: new Date(m.created_at),
+          }))
+          setInitialMessages(loadedMessages)
+          // Track the last saved message to avoid re-saving
+          lastSavedMessageRef.current = history[history.length - 1].id
+        }
+      } catch (err) {
+        console.error('Failed to load message history:', err)
+      } finally {
+        setLoadingHistory(false)
+      }
+    }
+
+    loadHistory()
+  }, [node.id, supabase])
+
+  // Handle typing state with debounce
+  const handleTypingStart = () => {
+    if (!isUserTyping) {
+      setIsUserTyping(true)
+      onTypingChange?.(true)
+    }
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current)
+    }
+
+    // Set timeout to stop typing indicator after 2 seconds of inactivity
+    typingTimeoutRef.current = setTimeout(() => {
+      setIsUserTyping(false)
+      onTypingChange?.(false)
+    }, 2000)
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
+      }
+      onTypingChange?.(false)
+    }
+  }, [onTypingChange])
+
+  // Parse suggestion from AI response
+  function parseSuggestion(content: string): AISuggestion | null {
+    const start = content.indexOf('<suggestion>')
+    const end = content.indexOf('</suggestion>')
+    if (start === -1 || end === -1) return null
+    try { return JSON.parse(content.slice(start + 12, end)) } catch { return null }
+  }
+
+  // Save message to database
+  const saveMessage = useCallback(async (role: 'user' | 'assistant', content: string, suggestion?: AISuggestion | null) => {
+    try {
+      await supabase.from('node_messages').insert({
+        node_id: node.id,
+        project_id: project.id,
+        role,
+        content,
+        suggestion: suggestion || null,
+      })
+    } catch (err) {
+      console.error('Failed to save message:', err)
+    }
+  }, [node.id, project.id, supabase])
 
   const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
     api: '/api/ai/chat',
@@ -43,18 +145,32 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence
       },
     },
     id: node.id,
+    initialMessages: initialMessages,
+    onFinish: async (message) => {
+      // Save assistant message when AI finishes responding
+      const suggestion = parseSuggestion(message.content)
+      await saveMessage('assistant', message.content, suggestion)
+    },
   })
+
+  // Save user message when it appears in the messages array
+  const prevMessagesLengthRef = useRef(initialMessages.length)
+  useEffect(() => {
+    // Check if a new user message was added
+    if (messages.length > prevMessagesLengthRef.current) {
+      const newMessages = messages.slice(prevMessagesLengthRef.current)
+      for (const msg of newMessages) {
+        if (msg.role === 'user') {
+          saveMessage('user', msg.content)
+        }
+      }
+    }
+    prevMessagesLengthRef.current = messages.length
+  }, [messages, saveMessage])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  function parseSuggestion(content: string): AISuggestion | null {
-    const start = content.indexOf('<suggestion>')
-    const end = content.indexOf('</suggestion>')
-    if (start === -1 || end === -1) return null
-    try { return JSON.parse(content.slice(start + 12, end)) } catch { return null }
-  }
 
   async function applySuggestion(suggestion: AISuggestion) {
     if (suggestion.action === 'apply_to_canvas') {
@@ -87,6 +203,11 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence
       <div className="px-4 py-3.5 flex items-center gap-2.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: '#34d399' }} />
         <span className="text-[13px] font-semibold text-zinc-100 flex-1">AI assistant</span>
+        {messages.length > 0 && (
+          <span className="text-[10px] text-zinc-500 px-1.5 py-0.5 rounded bg-white/5">
+            {messages.length} msg{messages.length !== 1 ? 's' : ''}
+          </span>
+        )}
         <button
           onClick={onClose}
           className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
@@ -130,7 +251,15 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.06) transparent' }}>
-        {messages.length === 0 && (
+        {/* Loading state */}
+        {loadingHistory && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+          </div>
+        )}
+
+        {/* Empty state - only show when not loading and no messages */}
+        {!loadingHistory && messages.length === 0 && (
           <div className="space-y-2 pt-2">
             <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(161,161,170,0.5)' }}>
               Ask questions, propose changes, or resolve conflicts on this node.
@@ -139,7 +268,6 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence
               <button
                 key={prompt}
                 onClick={() => {
-                  const fakeEvent = { preventDefault: () => {} } as React.FormEvent
                   handleInputChange({ target: { value: prompt } } as React.ChangeEvent<HTMLInputElement>)
                 }}
                 className="w-full text-left text-[12px] px-3 py-2 rounded-xl transition-colors"
@@ -209,15 +337,52 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Typing indicator */}
+      {typingCollaborators.length > 0 && (
+        <div
+          className="px-4 py-2 flex items-center gap-2"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)' }}
+        >
+          <div className="flex -space-x-1">
+            {typingCollaborators.slice(0, 3).map(c => (
+              <div
+                key={c.user_id}
+                className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold ring-1 ring-[#0f1018]"
+                style={{ background: c.color + '30', color: c.color }}
+              >
+                {(c.name || c.email || c.user_id).slice(0, 1).toUpperCase()}
+              </div>
+            ))}
+          </div>
+          <span className="text-[11px] text-zinc-500 italic flex items-center gap-1">
+            {typingCollaborators.length === 1
+              ? `${typingCollaborators[0].name || typingCollaborators[0].email?.split('@')[0] || 'Someone'} is typing`
+              : `${typingCollaborators.length} people are typing`}
+            <span className="flex gap-0.5">
+              <span className="w-1 h-1 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1 h-1 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-1 h-1 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+            </span>
+          </span>
+        </div>
+      )}
+
       {/* Input */}
       <form
-        onSubmit={handleSubmit}
+        onSubmit={(e) => {
+          handleSubmit(e)
+          setIsUserTyping(false)
+          onTypingChange?.(false)
+        }}
         className="p-3 flex gap-2 items-end"
         style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}
       >
         <input
           value={input}
-          onChange={handleInputChange}
+          onChange={(e) => {
+            handleInputChange(e)
+            handleTypingStart()
+          }}
           placeholder="Ask about this node…"
           className="flex-1 text-[12.5px] rounded-xl px-3.5 py-2.5 resize-none focus:outline-none transition-colors"
           style={{

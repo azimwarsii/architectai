@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { CanvasNode, CanvasEdge, Project, DevTask, Decision, Collaborator } from '@/types'
 import { SpecNode } from './SpecNode'
@@ -8,7 +8,8 @@ import { CanvasSidebar } from './CanvasSidebar'
 import { CollabCursors } from './CollabCursors'
 import { TaskExport } from './TaskExport'
 import { EvidenceDrawer } from './EvidenceDrawer'
-import { Plus, FileDown, Settings, LogOut } from 'lucide-react'
+import { InviteDialog } from './InviteDialog'
+import { Plus, FileDown, Settings, LogOut, UserPlus } from 'lucide-react'
 
 interface Props {
   project: Project
@@ -17,6 +18,16 @@ interface Props {
   initialTasks: DevTask[]
   initialDecisions: Decision[]
 }
+
+// Track recent edits for conflict detection
+interface EditRecord {
+  userId: string
+  userName: string
+  timestamp: number
+  content: { title: string; body?: string }
+}
+
+const CONFLICT_WINDOW_MS = 30000 // 30 seconds
 
 export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks, initialDecisions }: Props) {
   const supabase = createClient()
@@ -30,6 +41,7 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [evidenceNodeId, setEvidenceNodeId] = useState<string | null>(null)
   const [showTasks, setShowTasks] = useState(false)
+  const [showInvite, setShowInvite] = useState(false)
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [currentUserInitials, setCurrentUserInitials] = useState('U')
@@ -40,12 +52,27 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
   const [connectingFrom, setConnectingFrom] = useState<{ nodeId: string; side: 'left' | 'right' } | null>(null)
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null)
 
+  // Conflict detection: track recent edits per node
+  const editTrackerRef = useRef<Map<string, EditRecord>>(new Map())
+
+  // Refs for values needed in realtime handler to avoid re-subscriptions
+  const nodesRef = useRef(nodes)
+  const collaboratorsRef = useRef(collaborators)
+  const currentUserIdRef = useRef(currentUserId)
+
+  // Keep refs in sync
+  useEffect(() => { nodesRef.current = nodes }, [nodes])
+  useEffect(() => { collaboratorsRef.current = collaborators }, [collaborators])
+  useEffect(() => { currentUserIdRef.current = currentUserId }, [currentUserId])
+
   // Get current user so we can exclude our own cursor and show avatar
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
       setCurrentUserId(user.id)
-      const name = (user.user_metadata?.full_name as string) || user.email?.split('@')[0] || 'U'
+      const name = (user.user_metadata?.full_name as string) || user.email?.split('@')[0] || 'User'
+      setCurrentUserName(name)
+      setCurrentUserEmail(user.email || '')
       setCurrentUserInitials(name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase())
     })
   }, [supabase])
@@ -86,6 +113,48 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
               : [...prev, payload.new as CanvasNode]
           )
         } else if (payload.eventType === 'UPDATE') {
+          const updatedNode = payload.new as CanvasNode
+          const currentNodes = nodesRef.current
+          const currentCollabs = collaboratorsRef.current
+          const userId = currentUserIdRef.current
+          const oldNode = currentNodes.find(n => n.id === updatedNode.id)
+
+          // Conflict detection: check if another user edited within the conflict window
+          if (oldNode && updatedNode.type !== 'conflict') {
+            const recentEdit = editTrackerRef.current.get(updatedNode.id)
+            const now = Date.now()
+
+            if (recentEdit &&
+                recentEdit.userId === userId && // We made the recent edit
+                (now - recentEdit.timestamp) < CONFLICT_WINDOW_MS && // Within window
+                (updatedNode.title !== recentEdit.content.title ||
+                 updatedNode.body !== recentEdit.content.body)) { // Content changed by someone else
+              // Detect which user made the remote change
+              const remoteUserId = updatedNode.created_by || 'unknown'
+              const remoteUserName = currentCollabs.find(c => c.user_id === remoteUserId)?.name || 'Another user'
+
+              createConflictNode(
+                oldNode,
+                recentEdit,
+                remoteUserId,
+                remoteUserName,
+                { title: updatedNode.title, body: updatedNode.body }
+              )
+            }
+
+            // Track this incoming edit
+            if (userId) {
+              const editorUserId = updatedNode.created_by || 'remote'
+              const editorName = currentCollabs.find(c => c.user_id === editorUserId)?.name || 'Remote user'
+              editTrackerRef.current.set(updatedNode.id, {
+                userId: editorUserId,
+                userName: editorName,
+                timestamp: now,
+                content: { title: updatedNode.title, body: updatedNode.body },
+              })
+            }
+          }
+
           setNodes(prev => prev.map(n => n.id === payload.new.id ? payload.new as CanvasNode : n))
         } else if (payload.eventType === 'DELETE') {
           setNodes(prev => prev.filter(n => n.id !== payload.old.id))
@@ -125,47 +194,120 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
     return () => { supabase.removeChannel(channel) }
   }, [project.id, supabase, selectedEdgeId])
 
+  // Presence channel ref for sharing with child components
+  const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const [currentUserName, setCurrentUserName] = useState<string>('')
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('')
+
   // Track live cursor positions via Supabase presence
   useEffect(() => {
-    const channel = supabase.channel(`presence:${project.id}`, {
-      config: { presence: { key: 'cursor' } }
-    })
+    if (!currentUserId) return
 
-    const COLORS = ['#7F77DD', '#1D9E75', '#D85A30', '#BA7517']
+    const channel = supabase.channel(`presence:${project.id}`, {
+      config: { presence: { key: currentUserId } }
+    })
+    presenceChannelRef.current = channel
+
+    const COLORS = ['#7F77DD', '#1D9E75', '#D85A30', '#BA7517', '#E11D48', '#0891B2', '#65A30D', '#DC2626']
+
+    interface PresencePayload {
+      cursor?: { x: number; y: number }
+      name?: string
+      email?: string
+      activeNodeId?: string | null
+      isTyping?: boolean
+      lastActivity?: number
+    }
 
     channel
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState()
-        // Filter out the current user so their cursor isn't rendered as a second cursor
+        // Filter out the current user
         const collabs: Collaborator[] = Object.entries(state)
           .filter(([key]) => key !== currentUserId)
-          .map(([key, values], i) => ({
-            user_id: key,
-            role: 'editor' as const,
-            cursor: (values as unknown as Array<{ cursor: { x: number; y: number } }>)[0]?.cursor,
-            color: COLORS[i % COLORS.length],
-          }))
+          .map(([key, values], i) => {
+            const data = (values as unknown as PresencePayload[])[0] || {}
+            return {
+              user_id: key,
+              role: 'editor' as const,
+              cursor: data.cursor,
+              name: data.name,
+              email: data.email,
+              activeNodeId: data.activeNodeId,
+              isTyping: data.isTyping,
+              lastActivity: data.lastActivity,
+              color: COLORS[i % COLORS.length],
+            }
+          })
         setCollaborators(collabs)
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await channel.track({ online_at: new Date().toISOString() })
+          await channel.track({
+            online_at: new Date().toISOString(),
+            name: currentUserName,
+            email: currentUserEmail,
+            activeNodeId: selectedNodeId,
+            isTyping: false,
+            lastActivity: Date.now(),
+          })
         }
       })
 
     const canvasEl = canvasRef.current
+    let lastTrack = 0
+    const THROTTLE_MS = 50 // Throttle cursor updates
+
     const handleMouseMove = (e: MouseEvent) => {
       if (!canvasEl) return
+      const now = Date.now()
+      if (now - lastTrack < THROTTLE_MS) return
+      lastTrack = now
+
       const rect = canvasEl.getBoundingClientRect()
-      channel.track({ cursor: { x: e.clientX - rect.left, y: e.clientY - rect.top } })
+      channel.track({
+        cursor: { x: e.clientX - rect.left, y: e.clientY - rect.top },
+        name: currentUserName,
+        email: currentUserEmail,
+        activeNodeId: selectedNodeId,
+        isTyping: false,
+        lastActivity: now,
+      })
     }
 
     canvasEl?.addEventListener('mousemove', handleMouseMove)
     return () => {
       canvasEl?.removeEventListener('mousemove', handleMouseMove)
+      presenceChannelRef.current = null
       supabase.removeChannel(channel)
     }
-  }, [project.id, supabase])
+  }, [project.id, supabase, currentUserId, currentUserName, currentUserEmail])
+
+  // Update presence when selected node changes
+  useEffect(() => {
+    if (presenceChannelRef.current && currentUserId) {
+      presenceChannelRef.current.track({
+        name: currentUserName,
+        email: currentUserEmail,
+        activeNodeId: selectedNodeId,
+        isTyping: false,
+        lastActivity: Date.now(),
+      })
+    }
+  }, [selectedNodeId, currentUserName, currentUserEmail, currentUserId])
+
+  // Broadcast typing state
+  const broadcastTyping = (isTyping: boolean) => {
+    if (presenceChannelRef.current && currentUserId) {
+      presenceChannelRef.current.track({
+        name: currentUserName,
+        email: currentUserEmail,
+        activeNodeId: selectedNodeId,
+        isTyping,
+        lastActivity: Date.now(),
+      })
+    }
+  }
 
   async function updateNodePosition(nodeId: string, pos: { x: number; y: number }) {
     await supabase.from('canvas_nodes').update({ position: pos }).eq('id', nodeId)
@@ -179,6 +321,84 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
       title: 'Conflict resolved',
       rationale: resolution,
     })
+  }
+
+  // Resolve conflict with AI assistance
+  async function resolveConflictWithAI(conflictNodeId: string): Promise<{ title: string; body: string; rationale: string } | null> {
+    const conflictNode = nodes.find(n => n.id === conflictNodeId)
+    if (!conflictNode || conflictNode.type !== 'conflict') return null
+
+    try {
+      const conflictData = JSON.parse(conflictNode.body || '{}')
+
+      const res = await fetch('/api/conflicts/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conflictNodeId,
+          originalContent: conflictData.originalEdit?.content,
+          conflictingContent: conflictData.conflictingEdit?.content,
+          originalEditor: conflictData.originalEdit?.userName,
+          conflictingEditor: conflictData.conflictingEdit?.userName,
+        }),
+      })
+
+      if (!res.ok) {
+        console.error('AI resolution failed')
+        return null
+      }
+
+      const data = await res.json()
+      return data.resolution
+    } catch (err) {
+      console.error('Failed to resolve conflict with AI:', err)
+      return null
+    }
+  }
+
+  // Apply AI resolution to the original node
+  async function applyConflictResolution(
+    conflictNodeId: string,
+    resolution: { title: string; body: string; rationale: string }
+  ) {
+    const conflictNode = nodes.find(n => n.id === conflictNodeId)
+    if (!conflictNode) return
+
+    try {
+      const conflictData = JSON.parse(conflictNode.body || '{}')
+      const sourceNodeId = conflictData.sourceNodeId
+
+      if (sourceNodeId) {
+        // Update the original node with the resolved content
+        await supabase
+          .from('canvas_nodes')
+          .update({
+            title: resolution.title,
+            body: resolution.body,
+          })
+          .eq('id', sourceNodeId)
+
+        setNodes(prev =>
+          prev.map(n =>
+            n.id === sourceNodeId
+              ? { ...n, title: resolution.title, body: resolution.body }
+              : n
+          )
+        )
+      }
+
+      // Mark the conflict as resolved
+      await resolveConflict(conflictNodeId, resolution.rationale)
+      setNodes(prev =>
+        prev.map(n =>
+          n.id === conflictNodeId
+            ? { ...n, status: 'resolved' as const, resolution: resolution.rationale }
+            : n
+        )
+      )
+    } catch (err) {
+      console.error('Failed to apply resolution:', err)
+    }
   }
 
   async function addNode() {
@@ -229,8 +449,95 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
 
     if (!error && data) {
       setNodes(prev => prev.map(n => n.id === nodeId ? data as CanvasNode : n))
+
+      // Track this edit for conflict detection
+      if (currentUserId) {
+        const node = nodes.find(n => n.id === nodeId)
+        if (node) {
+          editTrackerRef.current.set(nodeId, {
+            userId: currentUserId,
+            userName: currentUserName || 'You',
+            timestamp: Date.now(),
+            content: {
+              title: updates.title ?? node.title,
+              body: updates.body ?? node.body,
+            },
+          })
+        }
+      }
     }
   }
+
+  // Create a conflict node when simultaneous edits are detected
+  const createConflictNode = useCallback(async (
+    originalNode: CanvasNode,
+    originalEdit: EditRecord,
+    conflictingUserId: string,
+    conflictingUserName: string,
+    conflictingContent: { title: string; body?: string }
+  ) => {
+    // Don't create conflict if the same user is editing
+    if (originalEdit.userId === conflictingUserId) return
+
+    // Check if a conflict for this node already exists and is unresolved
+    const existingConflict = nodes.find(
+      n => n.type === 'conflict' &&
+           n.status === 'open' &&
+           n.body?.includes(originalNode.id)
+    )
+    if (existingConflict) return
+
+    const conflictBody = JSON.stringify({
+      sourceNodeId: originalNode.id,
+      sourceNodeTitle: originalNode.title,
+      originalEdit: {
+        userId: originalEdit.userId,
+        userName: originalEdit.userName,
+        content: originalEdit.content,
+        timestamp: originalEdit.timestamp,
+      },
+      conflictingEdit: {
+        userId: conflictingUserId,
+        userName: conflictingUserName,
+        content: conflictingContent,
+        timestamp: Date.now(),
+      },
+    })
+
+    const { data: conflictNode } = await supabase
+      .from('canvas_nodes')
+      .insert({
+        project_id: project.id,
+        type: 'conflict',
+        title: `Conflict: ${originalNode.title}`,
+        body: conflictBody,
+        status: 'open',
+        position: {
+          x: originalNode.position.x + 240,
+          y: originalNode.position.y,
+        },
+        evidence: [],
+      })
+      .select()
+      .single()
+
+    if (conflictNode) {
+      setNodes(prev =>
+        prev.some(n => n.id === conflictNode.id) ? prev : [...prev, conflictNode as CanvasNode]
+      )
+
+      // Create an edge from original to conflict
+      await fetch('/api/edges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: project.id,
+          source_id: originalNode.id,
+          target_id: conflictNode.id,
+        }),
+      })
+    }
+  }, [nodes, project.id, supabase])
 
   // Edge creation handlers
   function handleStartEdge(nodeId: string, side: 'left' | 'right') {
@@ -367,6 +674,16 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
               ))}
             </div>
           )}
+
+          {/* Invite button */}
+          <button
+            onClick={() => setShowInvite(true)}
+            className="flex items-center gap-1.5 h-7 px-3 rounded-md text-[12px] font-medium text-zinc-400 bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] transition-colors"
+            title="Invite collaborators"
+          >
+            <UserPlus className="w-3 h-3" />
+            Invite
+          </button>
 
           <button
             onClick={addNode}
@@ -546,6 +863,9 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
                 isConnecting={connectingFrom !== null && connectingFrom.nodeId !== node.id}
                 onDelete={deleteNode}
                 onUpdate={updateNodeContent}
+                viewingCollaborators={collaborators}
+                onResolveWithAI={resolveConflictWithAI}
+                onApplyResolution={applyConflictResolution}
               />
             ))}
 
@@ -582,6 +902,8 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
               onClose={() => setSelectedNodeId(null)}
               onNodeUpdate={(updated) => setNodes(prev => prev.map(n => n.id === updated.id ? updated : n))}
               onOpenEvidence={() => setEvidenceNodeId(selectedNode.id)}
+              collaborators={collaborators}
+              onTypingChange={broadcastTyping}
             />
           )}
         </div>
@@ -593,6 +915,15 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
           tasks={tasks}
           projectId={project.id}
           onClose={() => setShowTasks(false)}
+        />
+      )}
+
+      {/* Invite dialog */}
+      {showInvite && (
+        <InviteDialog
+          projectId={project.id}
+          projectName={project.name}
+          onClose={() => setShowInvite(false)}
         />
       )}
     </div>

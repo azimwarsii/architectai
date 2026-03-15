@@ -1,7 +1,30 @@
 'use client'
 import { useRef, useState, useEffect } from 'react'
-import { Trash2 } from 'lucide-react'
-import type { CanvasNode } from '@/types'
+import { Trash2, Wand2, Check, X, Loader2 } from 'lucide-react'
+import type { CanvasNode, Collaborator } from '@/types'
+
+interface ConflictData {
+  sourceNodeId: string
+  sourceNodeTitle: string
+  originalEdit: {
+    userId: string
+    userName: string
+    content: { title: string; body?: string }
+    timestamp: number
+  }
+  conflictingEdit: {
+    userId: string
+    userName: string
+    content: { title: string; body?: string }
+    timestamp: number
+  }
+}
+
+interface AIResolution {
+  title: string
+  body: string
+  rationale: string
+}
 
 interface Props {
   node: CanvasNode
@@ -15,6 +38,9 @@ interface Props {
   isConnecting?: boolean
   onDelete?: (nodeId: string) => void
   onUpdate?: (nodeId: string, updates: { title?: string; body?: string }) => void
+  viewingCollaborators?: Collaborator[]
+  onResolveWithAI?: (nodeId: string) => Promise<AIResolution | null>
+  onApplyResolution?: (nodeId: string, resolution: AIResolution) => Promise<void>
 }
 
 const typeConfig: Record<string, { dot: string; badgeBg: string; badgeText: string; label: string; border: string; selectedBorder: string }> = {
@@ -28,11 +54,15 @@ const typeConfig: Record<string, { dot: string; badgeBg: string; badgeText: stri
   evidence:   { dot: '#9ca3af', badgeBg: 'rgba(156,163,175,0.12)', badgeText: '#d1d5db', label: 'Evidence', border: 'rgba(156,163,175,0.15)', selectedBorder: 'rgba(156,163,175,0.5)' },
 }
 
-export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEvidence, onStartEdge, onEndEdge, isConnecting, onDelete, onUpdate }: Props) {
+export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEvidence, onStartEdge, onEndEdge, isConnecting, onDelete, onUpdate, viewingCollaborators, onResolveWithAI, onApplyResolution }: Props) {
   const dragStart = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null)
   const didDrag = useRef(false)
   const [isDragging, setIsDragging] = useState(false)
   const [localPos, setLocalPos] = useState(node.position)
+
+  // Get collaborators actively viewing this node
+  const activeViewers = viewingCollaborators?.filter(c => c.activeNodeId === node.id) || []
+  const hasActiveViewers = activeViewers.length > 0
 
   // Inline editing state
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -41,6 +71,22 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
   const [editBody, setEditBody] = useState(node.body || '')
   const titleInputRef = useRef<HTMLInputElement>(null)
   const bodyInputRef = useRef<HTMLTextAreaElement>(null)
+
+  // AI conflict resolution state
+  const [isResolvingWithAI, setIsResolvingWithAI] = useState(false)
+  const [aiResolution, setAiResolution] = useState<AIResolution | null>(null)
+  const [isApplyingResolution, setIsApplyingResolution] = useState(false)
+
+  // Parse conflict data if this is a conflict node
+  const conflictData: ConflictData | null = node.type === 'conflict' && node.body
+    ? (() => {
+        try {
+          return JSON.parse(node.body)
+        } catch {
+          return null
+        }
+      })()
+    : null
 
   // Sync local state when node changes externally
   useEffect(() => {
@@ -105,6 +151,38 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
     }
   }
 
+  // AI conflict resolution handlers
+  async function handleResolveWithAI() {
+    if (!onResolveWithAI || isResolvingWithAI) return
+    setIsResolvingWithAI(true)
+    setAiResolution(null)
+
+    try {
+      const resolution = await onResolveWithAI(node.id)
+      if (resolution) {
+        setAiResolution(resolution)
+      }
+    } finally {
+      setIsResolvingWithAI(false)
+    }
+  }
+
+  async function handleApplyResolution() {
+    if (!onApplyResolution || !aiResolution || isApplyingResolution) return
+    setIsApplyingResolution(true)
+
+    try {
+      await onApplyResolution(node.id, aiResolution)
+      setAiResolution(null)
+    } finally {
+      setIsApplyingResolution(false)
+    }
+  }
+
+  function handleDismissResolution() {
+    setAiResolution(null)
+  }
+
   function onPointerDown(e: React.PointerEvent) {
     e.stopPropagation()
     didDrag.current = false
@@ -143,9 +221,11 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
         left: localPos.x,
         top: localPos.y,
         background: selected ? '#1c1d2a' : '#161720',
-        border: `1px solid ${selected ? cfg.selectedBorder : cfg.border}`,
+        border: `1px solid ${selected ? cfg.selectedBorder : hasActiveViewers ? activeViewers[0].color : cfg.border}`,
         boxShadow: selected
           ? `0 0 0 1px ${cfg.selectedBorder}, 0 8px 32px rgba(0,0,0,0.4)`
+          : hasActiveViewers
+          ? `0 0 0 2px ${activeViewers[0].color}40, 0 4px 20px rgba(0,0,0,0.3)`
           : isDragging
           ? '0 16px 40px rgba(0,0,0,0.5)'
           : '0 2px 12px rgba(0,0,0,0.3)',
@@ -170,6 +250,30 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
         </span>
         {node.type === 'conflict' && (
           <span className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+        )}
+
+        {/* Active viewers */}
+        {hasActiveViewers && (
+          <div className="flex items-center gap-1 ml-1">
+            <div className="flex -space-x-1.5">
+              {activeViewers.slice(0, 3).map(viewer => (
+                <div
+                  key={viewer.user_id}
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold ring-1 ring-[#161720] transition-all"
+                  style={{
+                    background: viewer.color + '30',
+                    color: viewer.color,
+                  }}
+                  title={`${viewer.name || viewer.email || 'User'} is viewing`}
+                >
+                  {(viewer.name || viewer.email || viewer.user_id).slice(0, 1).toUpperCase()}
+                </div>
+              ))}
+            </div>
+            {activeViewers.some(v => v.isTyping) && (
+              <span className="text-[9px] text-zinc-500 italic">typing...</span>
+            )}
+          </div>
         )}
 
         {/* Actions row */}
@@ -260,6 +364,86 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
         </p>
       )}
 
+      {/* Conflict details for conflict nodes */}
+      {node.type === 'conflict' && conflictData && node.status === 'open' && (
+        <div className="mt-2.5 pt-2 border-t space-y-2" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <div className="text-[10px] text-zinc-500 space-y-1.5">
+            <div className="flex items-start gap-1.5">
+              <span className="text-red-400 font-medium shrink-0">A:</span>
+              <span className="text-zinc-400">{conflictData.originalEdit.userName}: &quot;{conflictData.originalEdit.content.title}&quot;</span>
+            </div>
+            <div className="flex items-start gap-1.5">
+              <span className="text-amber-400 font-medium shrink-0">B:</span>
+              <span className="text-zinc-400">{conflictData.conflictingEdit.userName}: &quot;{conflictData.conflictingEdit.content.title}&quot;</span>
+            </div>
+          </div>
+
+          {/* AI Resolution UI */}
+          {!aiResolution ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); handleResolveWithAI() }}
+              disabled={isResolvingWithAI}
+              className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors disabled:opacity-50"
+              style={{
+                background: 'rgba(139,92,246,0.15)',
+                color: '#a78bfa',
+                border: '1px solid rgba(139,92,246,0.3)',
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {isResolvingWithAI ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Resolving...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-3 h-3" />
+                  Resolve with AI
+                </>
+              )}
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <div className="p-2 rounded-md" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                <p className="text-[10px] font-medium text-emerald-400 mb-1">AI Suggestion:</p>
+                <p className="text-[11px] text-zinc-300 font-medium">{aiResolution.title}</p>
+                {aiResolution.body && (
+                  <p className="text-[10px] text-zinc-400 mt-0.5 line-clamp-2">{aiResolution.body}</p>
+                )}
+                <p className="text-[9px] text-zinc-500 mt-1.5 italic">{aiResolution.rationale}</p>
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleApplyResolution() }}
+                  disabled={isApplyingResolution}
+                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors"
+                  style={{ background: 'rgba(16,185,129,0.2)', color: '#6ee7b7' }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  {isApplyingResolution ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <>
+                      <Check className="w-3 h-3" />
+                      Accept
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDismissResolution() }}
+                  className="px-2 py-1 rounded-md text-[10px] font-medium transition-colors"
+                  style={{ background: 'rgba(255,255,255,0.05)', color: '#a1a1aa' }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Status chip */}
       {node.status !== 'open' && (
         <div className="mt-2.5 pt-2 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
@@ -268,6 +452,9 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
           }`}>
             {node.status}
           </span>
+          {node.type === 'conflict' && node.resolution && (
+            <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">{node.resolution}</p>
+          )}
         </div>
       )}
 

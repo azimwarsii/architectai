@@ -143,9 +143,13 @@ export interface Collaborator {
   user_id: string
   role: CollabRole
   email?: string
+  name?: string
   avatar_url?: string
   cursor?: { x: number; y: number }
   color: string
+  activeNodeId?: string | null
+  isTyping?: boolean
+  lastActivity?: number
 }
 
 export interface Decision {
@@ -156,4 +160,33 @@ export interface Decision {
   rationale?: string
   status?: 'pending' | 'approved' | 'rejected'
   created_at: string
+}
+
+export interface ProjectCollaborator {
+  id: string
+  project_id: string
+  user_id: string
+  role: CollabRole
+  invited_by?: string
+  invited_at: string
+  accepted_at?: string
+  // Joined fields from auth.users
+  email?: string
+  full_name?: string
+  avatar_url?: string
+}
+
+export interface ProjectInvite {
+  id: string
+  project_id: string
+  email: string
+  role: 'editor' | 'viewer'
+  token: string
+  invited_by: string
+  created_at: string
+  expires_at: string
+  accepted_at?: string
+  // Joined fields
+  project_name?: string
+  inviter_name?: string
 }
