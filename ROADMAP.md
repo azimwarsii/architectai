@@ -24,13 +24,13 @@ Use this checklist to track progress. Check off items as they're completed.
 - [x] **UI:** Show current collaborators with role badges
 
 #### 3.2 Role-Based Permissions
-- [ ] **Hook:** Create `usePermissions(projectId)` hook
-- [ ] **Logic:** Fetch user role from `project_collaborators` table
-- [ ] **UI:** Disable node drag/edit for viewers
-- [ ] **UI:** Hide "Add node", "Delete" buttons for viewers
-- [ ] **UI:** Hide chat input for viewers (show read-only)
-- [ ] **UI:** Hide "Invite" button for non-owners
-- [ ] **UI:** Show "View only" badge for viewers
+- [x] **Hook:** Create `usePermissions(projectId)` hook
+- [x] **Logic:** Fetch user role from `project_collaborators` table
+- [x] **UI:** Disable node drag/edit for viewers
+- [x] **UI:** Hide "Add node", "Delete" buttons for viewers
+- [x] **UI:** Hide chat input for viewers (show read-only)
+- [x] **UI:** Hide "Invite" button for non-owners
+- [x] **UI:** Show "View only" badge for viewers
 
 #### 3.3 Real-Time Presence & Cursors
 - [x] **Presence:** Add name labels below cursor icons
@@ -40,22 +40,22 @@ Use this checklist to track progress. Check off items as they're completed.
 - [x] **Chat:** Show "X is typing..." indicator
 
 #### 3.4 Conflict Detection & Resolution
-- [ ] **Logic:** Track last editor per node with timestamp
-- [ ] **Logic:** Detect simultaneous edits (within 30 seconds)
-- [ ] **Logic:** Auto-create conflict node when detected
-- [ ] **AI:** Create conflict resolution prompt
-- [ ] **UI:** Add "Resolve with AI" button on conflict nodes
-- [ ] **UI:** Show AI suggestion with "Accept Resolution" action
-- [ ] **Logic:** On accept: update node, mark resolved, log decision
+- [x] **Logic:** Track last editor per node with timestamp
+- [x] **Logic:** Detect simultaneous edits (within 30 seconds)
+- [x] **Logic:** Auto-create conflict node when detected
+- [x] **AI:** Create conflict resolution prompt
+- [x] **UI:** Add "Resolve with AI" button on conflict nodes
+- [x] **UI:** Show AI suggestion with "Accept Resolution" action
+- [x] **Logic:** On accept: update node, mark resolved, log decision
 
 #### 3.5 Decision Log Improvements
-- [ ] **UI:** Create expandable decision list in sidebar
-- [ ] **UI:** Show author avatar, timestamp, rationale
-- [ ] **UI:** Add filter (All / Mine / This week)
-- [ ] **UI:** Add search by keyword
-- [ ] **UI:** Add "Log Decision" button for manual entries
-- [ ] **API:** Create `POST /api/decisions` route
-- [ ] **API:** Create `GET /api/projects/[id]/decisions` route
+- [x] **UI:** Create expandable decision list in sidebar
+- [x] **UI:** Show author avatar, timestamp, rationale
+- [x] **UI:** Add filter (All / Mine / This week)
+- [x] **UI:** Add search by keyword
+- [x] **UI:** Add "Log Decision" button for manual entries
+- [x] **API:** Create `POST /api/decisions` route
+- [x] **API:** Create `GET /api/projects/[id]/decisions` route
 
 #### 3.6 Chat Message Persistence
 - [x] **Database:** Create `node_messages` table in Supabase
@@ -71,24 +71,23 @@ Use this checklist to track progress. Check off items as they're completed.
 ### Phase 4: Extensions & Integrations (Weeks 19-24)
 
 #### 4.1 Browser Extension
-- [ ] **Setup:** Create extension project structure (MV3)
-- [ ] **Setup:** Create manifest.json for Chrome
-- [ ] **Auth:** Implement OAuth flow for extension
-- [ ] **Auth:** Store token in extension storage
-- [ ] **API:** Create `GET /api/extension/project/[id]` route
-- [ ] **API:** Create `GET /api/extension/tasks/[id]/context` route
-- [ ] **API:** Create `POST /api/extension/prompts` route
-- [ ] **API:** Create `POST /api/extension/tasks/[id]/complete` route
-- [ ] **Content Script:** Cursor integration (detect workspace)
-- [ ] **Content Script:** Lovable integration
-- [ ] **Content Script:** Bolt integration
-- [ ] **Content Script:** Replit integration
-- [ ] **UI:** Create popup with project selector
-- [ ] **UI:** Create side panel with task context
-- [ ] **UI:** Show prompt suggestions based on current task
-- [ ] **Logic:** Intercept and log prompts to project memory
-- [ ] **Build:** Package for Chrome Web Store
-- [ ] **Build:** Package for Firefox Add-ons
+- [x] **Setup:** Create extension project structure (MV3)
+- [x] **Setup:** Create manifest.json for Chrome
+- [x] **Auth:** Implement OAuth flow for extension
+- [x] **Auth:** Store token in extension storage
+- [x] **API:** Create `GET /api/extension/project/[id]` route
+- [x] **API:** Create `GET /api/extension/tasks/[id]/context` route
+- [x] **API:** Create `POST /api/extension/prompts` route
+- [x] **API:** Create `POST /api/extension/tasks/[id]/complete` route
+- [x] **Content Script:** Cursor integration (detect workspace)
+- [x] **Content Script:** Lovable integration
+- [x] **Content Script:** Bolt integration
+- [x] **Content Script:** Replit integration
+- [x] **UI:** Create popup with project selector
+- [x] **UI:** Create side panel with task context
+- [x] **UI:** Show prompt suggestions based on current task
+- [x] **Logic:** Intercept and log prompts to project memory
+- [x] **Build:** Package for Chrome Web Store
 
 #### 4.2 Jira Integration
 - [ ] **Setup:** Register Jira OAuth app
@@ -110,12 +109,12 @@ Use this checklist to track progress. Check off items as they're completed.
 - [ ] **UI:** Show Linear export option in TaskExport component
 
 #### 4.4 GitHub Issues Integration
-- [ ] **Setup:** Create GitHub OAuth app
-- [ ] **UI:** Add GitHub connection in Settings > Integrations
-- [ ] **API:** Create `POST /api/integrations/github/connect` route
-- [ ] **API:** Create `POST /api/integrations/github/export` route
-- [ ] **Logic:** Create issues via GitHub REST API
-- [ ] **UI:** Show GitHub export option in TaskExport component
+- [x] **Setup:** Create GitHub OAuth app
+- [x] **UI:** Add GitHub connection in Settings > Integrations
+- [x] **API:** Create `POST /api/integrations/github/connect` route
+- [x] **API:** Create `POST /api/integrations/github/export` route
+- [x] **Logic:** Create issues via GitHub REST API
+- [x] **UI:** Show GitHub export option in TaskExport component
 
 #### 4.5 Stripe Billing
 - [ ] **Setup:** Create Stripe account and products

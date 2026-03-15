@@ -9,10 +9,11 @@ interface Props {
   node: CanvasNode
   project: Project
   onClose: () => void
-  onNodeUpdate: (node: CanvasNode) => void
+  onNodeUpdate?: (node: CanvasNode) => void
   onOpenEvidence?: () => void
   collaborators?: Collaborator[]
   onTypingChange?: (isTyping: boolean) => void
+  readOnly?: boolean
 }
 
 const nodeTypeColor: Record<string, string> = {
@@ -26,7 +27,7 @@ const nodeTypeColor: Record<string, string> = {
   evidence:   '#9ca3af',
 }
 
-export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence, collaborators, onTypingChange }: Props) {
+export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence, collaborators, onTypingChange, readOnly }: Props) {
   const supabase = createClient()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -176,7 +177,7 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence
     if (suggestion.action === 'apply_to_canvas') {
       const updated = { ...node, body: suggestion.body, updated_at: new Date().toISOString() }
       await supabase.from('canvas_nodes').update({ body: suggestion.body }).eq('id', node.id)
-      onNodeUpdate(updated as CanvasNode)
+      onNodeUpdate?.(updated as CanvasNode)
     } else if (suggestion.action === 'log_decision') {
       await supabase.from('decisions').insert({
         project_id: project.id,
@@ -262,9 +263,11 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence
         {!loadingHistory && messages.length === 0 && (
           <div className="space-y-2 pt-2">
             <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(161,161,170,0.5)' }}>
-              Ask questions, propose changes, or resolve conflicts on this node.
+              {readOnly
+                ? 'No conversation history for this node yet.'
+                : 'Ask questions, propose changes, or resolve conflicts on this node.'}
             </p>
-            {['What should this node contain?', 'Suggest improvements', 'Find conflicts'].map(prompt => (
+            {!readOnly && ['What should this node contain?', 'Suggest improvements', 'Find conflicts'].map(prompt => (
               <button
                 key={prompt}
                 onClick={() => {
@@ -309,15 +312,17 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence
                 >
                   <p className="text-[13px] font-semibold" style={{ color: '#e4e4e7' }}>{suggestion.title}</p>
                   <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(161,161,170,0.7)' }}>{suggestion.body}</p>
-                  <button
-                    onClick={() => applySuggestion(suggestion)}
-                    className="h-7 px-3 rounded-lg text-[12px] font-semibold transition-colors"
-                    style={{ background: 'rgba(124,58,237,0.3)', color: '#c4b5fd', border: '1px solid rgba(124,58,237,0.4)' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.45)' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.3)' }}
-                  >
-                    Apply to canvas
-                  </button>
+                  {!readOnly && onNodeUpdate && (
+                    <button
+                      onClick={() => applySuggestion(suggestion)}
+                      className="h-7 px-3 rounded-lg text-[12px] font-semibold transition-colors"
+                      style={{ background: 'rgba(124,58,237,0.3)', color: '#c4b5fd', border: '1px solid rgba(124,58,237,0.4)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.45)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.3)' }}
+                    >
+                      Apply to canvas
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -367,43 +372,52 @@ export function ChatPanel({ node, project, onClose, onNodeUpdate, onOpenEvidence
         </div>
       )}
 
-      {/* Input */}
-      <form
-        onSubmit={(e) => {
-          handleSubmit(e)
-          setIsUserTyping(false)
-          onTypingChange?.(false)
-        }}
-        className="p-3 flex gap-2 items-end"
-        style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}
-      >
-        <input
-          value={input}
-          onChange={(e) => {
-            handleInputChange(e)
-            handleTypingStart()
-          }}
-          placeholder="Ask about this node…"
-          className="flex-1 text-[12.5px] rounded-xl px-3.5 py-2.5 resize-none focus:outline-none transition-colors"
-          style={{
-            background: 'rgba(255,255,255,0.06)',
-            border: '1px solid rgba(255,255,255,0.09)',
-            color: '#e4e4e7',
-          }}
-          onFocus={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.5)' }}
-          onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)' }}
-        />
-        <button
-          type="submit"
-          disabled={isLoading || !input.trim()}
-          className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-30"
-          style={{ background: '#7c3aed' }}
-          onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#6d28d9' }}
-          onMouseLeave={e => { e.currentTarget.style.background = '#7c3aed' }}
+      {/* Input - hidden for read-only viewers */}
+      {readOnly ? (
+        <div
+          className="p-3 flex items-center justify-center"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}
         >
-          <ArrowUp className="w-3.5 h-3.5 text-white" />
-        </button>
-      </form>
+          <span className="text-[11px] text-zinc-500 italic">View only - chat input disabled</span>
+        </div>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            handleSubmit(e)
+            setIsUserTyping(false)
+            onTypingChange?.(false)
+          }}
+          className="p-3 flex gap-2 items-end"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}
+        >
+          <input
+            value={input}
+            onChange={(e) => {
+              handleInputChange(e)
+              handleTypingStart()
+            }}
+            placeholder="Ask about this node…"
+            className="flex-1 text-[12.5px] rounded-xl px-3.5 py-2.5 resize-none focus:outline-none transition-colors"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.09)',
+              color: '#e4e4e7',
+            }}
+            onFocus={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.5)' }}
+            onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)' }}
+          />
+          <button
+            type="submit"
+            disabled={isLoading || !input.trim()}
+            className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-30"
+            style={{ background: '#7c3aed' }}
+            onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#6d28d9' }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#7c3aed' }}
+          >
+            <ArrowUp className="w-3.5 h-3.5 text-white" />
+          </button>
+        </form>
+      )}
     </div>
   )
 }

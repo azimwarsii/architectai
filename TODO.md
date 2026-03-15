@@ -11,13 +11,13 @@
 - [x] Node deletion
 - [x] Collaborator invite system
 
-## In Progress (Phase 3)
+## Completed (Phase 3)
 
-- [X] Role-based permissions (owner/editor/viewer)
-- [X] Real-time presence polish (cursor labels, typing indicators)
-- [X] Conflict detection & AI resolution
-- [X] Chat message persistence
-- [ ] Decision log UI improvements
+- [x] Role-based permissions (owner/editor/viewer)
+- [x] Real-time presence polish (cursor labels, typing indicators)
+- [x] Conflict detection & AI resolution
+- [x] Chat message persistence
+- [x] Decision log UI improvements
 
 ## Up Next (Phase 4)
 
@@ -43,8 +43,9 @@
 | Feature | Status | Priority |
 |---------|--------|----------|
 | Collaborator Invites | Done | P0 |
-| Role Permissions | Not Started | P0 |
-| Conflict Detection | Not Started | P0 |
-| Chat Persistence | Not Started | P1 |
+| Role Permissions | Done | P0 |
+| Conflict Detection | Done | P0 |
+| Chat Persistence | Done | P1 |
+| Decision Log UI | Done | P1 |
 | Browser Extension | Not Started | P1 |
 | Stripe Billing | Not Started | P2 |

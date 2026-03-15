@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ArchitectAI - Task Context</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Loading state -->
+    <div id="loading" class="view">
+      <div class="loading-spinner"></div>
+      <p>Loading...</p>
+    </div>
+
+    <!-- Login view -->
+    <div id="login-view" class="view hidden">
+      <div class="header">
+        <div class="logo">
+          <span class="logo-icon">A</span>
+          <span class="logo-text">ArchitectAI</span>
+        </div>
+      </div>
+      <div class="content center">
+        <h2>Sign in required</h2>
+        <p class="description">Please sign in through the extension popup to use the side panel.</p>
+        <button id="open-popup-btn" class="btn primary">Open Extension Popup</button>
+      </div>
+    </div>
+
+    <!-- Main view -->
+    <div id="main-view" class="view hidden">
+      <div class="header">
+        <div class="logo">
+          <span class="logo-icon">A</span>
+          <span class="logo-text">ArchitectAI</span>
+        </div>
+        <div class="header-actions">
+          <button id="refresh-btn" class="btn-icon" title="Refresh">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
+          <button id="open-dashboard-btn" class="btn-icon" title="Open Dashboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Project selector -->
+      <div class="project-selector">
+        <select id="project-select">
+          <option value="">Select a project...</option>
+        </select>
+      </div>
+
+      <!-- Task list section -->
+      <div class="section">
+        <div class="section-header">
+          <h3>Active Tasks</h3>
+          <span id="task-count" class="badge">0</span>
+        </div>
+
+        <div id="no-tasks" class="empty-state">
+          <p>No tasks found</p>
+        </div>
+
+        <div id="tasks-list" class="tasks-list hidden">
+          <!-- Tasks will be populated here -->
+        </div>
+      </div>
+
+      <!-- Active task detail -->
+      <div id="active-task-section" class="section hidden">
+        <div class="section-header">
+          <h3>Current Task</h3>
+          <button id="minimize-task-btn" class="btn-icon small" title="Minimize">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="4 14 10 14 10 20"></polyline>
+              <polyline points="20 10 14 10 14 4"></polyline>
+              <line x1="14" y1="10" x2="21" y2="3"></line>
+              <line x1="3" y1="21" x2="10" y2="14"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div id="active-task" class="active-task">
+          <div class="task-header">
+            <span class="task-status"></span>
+            <h4 class="task-title"></h4>
+          </div>
+          <p class="task-description"></p>
+
+          <!-- Acceptance criteria -->
+          <div class="task-criteria hidden">
+            <span class="criteria-label">Acceptance Criteria</span>
+            <ul class="criteria-list"></ul>
+          </div>
+
+          <!-- Linked context -->
+          <div class="linked-context hidden">
+            <span class="context-label">Related Context</span>
+            <div class="context-list"></div>
+          </div>
+
+          <!-- Prompt suggestions -->
+          <div class="prompt-suggestions hidden">
+            <span class="suggestions-label">Prompt Suggestions</span>
+            <div class="suggestions-list"></div>
+          </div>
+
+          <div class="task-actions">
+            <button id="copy-full-context-btn" class="btn secondary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              Copy Full Context
+            </button>
+            <button id="complete-task-btn" class="btn primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              Complete
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick capture section -->
+      <div class="section">
+        <div class="section-header">
+          <h3>Quick Capture</h3>
+        </div>
+        <div class="quick-capture">
+          <p class="hint">Select text on the page and click "Send to ArchitectAI" to capture context.</p>
+          <div id="recent-capture" class="recent-capture hidden">
+            <div class="capture-header">
+              <span class="capture-label">Recent Capture</span>
+              <button id="clear-capture-btn" class="btn-text">Clear</button>
+            </div>
+            <p class="capture-preview"></p>
+            <div class="capture-actions">
+              <button id="send-capture-btn" class="btn primary small">Send to Canvas</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js" type="module"></script>
+</body>
+</html>

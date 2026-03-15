@@ -1,0 +1,8 @@
+/* ArchitectAI Content Script Styles */
+
+/* Capture button styles are inline in JS for isolation */
+
+/* Selection highlight style */
+::selection {
+  background: rgba(124, 58, 237, 0.2);
+}

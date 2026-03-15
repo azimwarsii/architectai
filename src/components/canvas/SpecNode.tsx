@@ -30,8 +30,8 @@ interface Props {
   node: CanvasNode
   selected: boolean
   onSelect: (id: string) => void
-  onMove: (pos: { x: number; y: number }) => void
-  onResolve: (resolution: string) => void
+  onMove?: (pos: { x: number; y: number }) => void
+  onResolve?: (resolution: string) => void
   onOpenEvidence?: (nodeId: string) => void
   onStartEdge?: (nodeId: string, side: 'left' | 'right') => void
   onEndEdge?: (nodeId: string) => void
@@ -41,6 +41,7 @@ interface Props {
   viewingCollaborators?: Collaborator[]
   onResolveWithAI?: (nodeId: string) => Promise<AIResolution | null>
   onApplyResolution?: (nodeId: string, resolution: AIResolution) => Promise<void>
+  readOnly?: boolean
 }
 
 const typeConfig: Record<string, { dot: string; badgeBg: string; badgeText: string; label: string; border: string; selectedBorder: string }> = {
@@ -54,7 +55,7 @@ const typeConfig: Record<string, { dot: string; badgeBg: string; badgeText: stri
   evidence:   { dot: '#9ca3af', badgeBg: 'rgba(156,163,175,0.12)', badgeText: '#d1d5db', label: 'Evidence', border: 'rgba(156,163,175,0.15)', selectedBorder: 'rgba(156,163,175,0.5)' },
 }
 
-export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEvidence, onStartEdge, onEndEdge, isConnecting, onDelete, onUpdate, viewingCollaborators, onResolveWithAI, onApplyResolution }: Props) {
+export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEvidence, onStartEdge, onEndEdge, isConnecting, onDelete, onUpdate, viewingCollaborators, onResolveWithAI, onApplyResolution, readOnly }: Props) {
   const dragStart = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null)
   const didDrag = useRef(false)
   const [isDragging, setIsDragging] = useState(false)
@@ -185,6 +186,11 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
 
   function onPointerDown(e: React.PointerEvent) {
     e.stopPropagation()
+    // In readOnly mode, only allow selection, not dragging
+    if (readOnly) {
+      onSelect(node.id)
+      return
+    }
     didDrag.current = false
     dragStart.current = { x: e.clientX, y: e.clientY, nodeX: localPos.x, nodeY: localPos.y }
     setIsDragging(true)
@@ -192,7 +198,7 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
   }
 
   function onPointerMove(e: React.PointerEvent) {
-    if (!dragStart.current) return
+    if (!dragStart.current || readOnly) return
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true
@@ -201,13 +207,14 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
 
   function onPointerUp(e: React.PointerEvent) {
     e.stopPropagation()
+    if (readOnly) return
     if (!dragStart.current) return
     dragStart.current = null
     setIsDragging(false)
     if (!didDrag.current) {
       onSelect(node.id)
     } else {
-      onMove(localPos)
+      onMove?.(localPos)
     }
     didDrag.current = false
   }
@@ -310,8 +317,8 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
         </div>
       </div>
 
-      {/* Title - double-click to edit */}
-      {isEditingTitle ? (
+      {/* Title - double-click to edit (if not readOnly) */}
+      {isEditingTitle && !readOnly ? (
         <input
           ref={titleInputRef}
           type="text"
@@ -326,10 +333,12 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
         />
       ) : (
         <p
-          className="text-[13px] font-semibold leading-snug text-zinc-100 mb-1.5 cursor-text hover:bg-white/5 rounded px-1 -mx-1 transition-colors"
+          className={`text-[13px] font-semibold leading-snug text-zinc-100 mb-1.5 rounded px-1 -mx-1 transition-colors ${
+            readOnly ? 'cursor-default' : 'cursor-text hover:bg-white/5'
+          }`}
           onDoubleClick={(e) => {
             e.stopPropagation()
-            if (onUpdate) setIsEditingTitle(true)
+            if (onUpdate && !readOnly) setIsEditingTitle(true)
           }}
           title="Double-click to edit"
         >
@@ -337,8 +346,8 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
         </p>
       )}
 
-      {/* Body - double-click to edit */}
-      {isEditingBody ? (
+      {/* Body - double-click to edit (if not readOnly) */}
+      {isEditingBody && !readOnly ? (
         <textarea
           ref={bodyInputRef}
           value={editBody}
@@ -353,14 +362,16 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve, onOpenEv
         />
       ) : (
         <p
-          className="text-[12px] text-zinc-500 leading-relaxed line-clamp-2 cursor-text hover:bg-white/5 rounded px-1 -mx-1 py-0.5 transition-colors min-h-[20px]"
+          className={`text-[12px] text-zinc-500 leading-relaxed line-clamp-2 rounded px-1 -mx-1 py-0.5 transition-colors min-h-[20px] ${
+            readOnly ? 'cursor-default' : 'cursor-text hover:bg-white/5'
+          }`}
           onDoubleClick={(e) => {
             e.stopPropagation()
-            if (onUpdate) setIsEditingBody(true)
+            if (onUpdate && !readOnly) setIsEditingBody(true)
           }}
-          title="Double-click to edit"
+          title={readOnly ? undefined : "Double-click to edit"}
         >
-          {node.body || <span className="text-zinc-600 italic">Add description...</span>}
+          {node.body || <span className="text-zinc-600 italic">{readOnly ? 'No description' : 'Add description...'}</span>}
         </p>
       )}
 

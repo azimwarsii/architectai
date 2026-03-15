@@ -9,7 +9,8 @@ import { CollabCursors } from './CollabCursors'
 import { TaskExport } from './TaskExport'
 import { EvidenceDrawer } from './EvidenceDrawer'
 import { InviteDialog } from './InviteDialog'
-import { Plus, FileDown, Settings, LogOut, UserPlus } from 'lucide-react'
+import { usePermissions } from '@/hooks/usePermissions'
+import { Plus, FileDown, Settings, LogOut, UserPlus, Eye } from 'lucide-react'
 
 interface Props {
   project: Project
@@ -32,6 +33,7 @@ const CONFLICT_WINDOW_MS = 30000 // 30 seconds
 export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks, initialDecisions }: Props) {
   const supabase = createClient()
   const canvasRef = useRef<HTMLDivElement>(null)
+  const permissions = usePermissions(project.id)
 
   const [nodes, setNodes] = useState<CanvasNode[]>(initialNodes)
   const [edges, setEdges] = useState<CanvasEdge[]>(initialEdges)
@@ -645,6 +647,9 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
         decisions={decisions}
         selectedNodeId={selectedNodeId}
         onSelectNode={(id) => setSelectedNodeId(prev => prev === id ? null : id)}
+        onDecisionAdded={(decision) => setDecisions(prev => [decision, ...prev])}
+        currentUserId={currentUserId || undefined}
+        canEdit={permissions.canEdit}
       />
 
       {/* Main area */}
@@ -675,34 +680,49 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
             </div>
           )}
 
-          {/* Invite button */}
-          <button
-            onClick={() => setShowInvite(true)}
-            className="flex items-center gap-1.5 h-7 px-3 rounded-md text-[12px] font-medium text-zinc-400 bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] transition-colors"
-            title="Invite collaborators"
-          >
-            <UserPlus className="w-3 h-3" />
-            Invite
-          </button>
+          {/* View only badge for viewers */}
+          {permissions.isViewer && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20">
+              <Eye className="w-3 h-3 text-amber-400" />
+              <span className="text-[11px] font-medium text-amber-400">View only</span>
+            </div>
+          )}
 
-          <button
-            onClick={addNode}
-            className="flex items-center gap-1.5 h-7 px-3 rounded-md text-[12px] font-medium text-zinc-400 bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] transition-colors"
-          >
-            <Plus className="w-3 h-3" />
-            Add node
-          </button>
+          {/* Invite button - owner only */}
+          {permissions.canInvite && (
+            <button
+              onClick={() => setShowInvite(true)}
+              className="flex items-center gap-1.5 h-7 px-3 rounded-md text-[12px] font-medium text-zinc-400 bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] transition-colors"
+              title="Invite collaborators"
+            >
+              <UserPlus className="w-3 h-3" />
+              Invite
+            </button>
+          )}
 
-          {/* Edge selected indicator */}
+          {/* Add node button - editors and owners only */}
+          {permissions.canEdit && (
+            <button
+              onClick={addNode}
+              className="flex items-center gap-1.5 h-7 px-3 rounded-md text-[12px] font-medium text-zinc-400 bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Add node
+            </button>
+          )}
+
+          {/* Edge selected indicator - delete only for editors */}
           {selectedEdgeId && (
             <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-violet-500/10 border border-violet-500/30">
               <span className="text-[11px] text-violet-300">Edge selected</span>
-              <button
-                onClick={deleteSelectedEdge}
-                className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
-              >
-                Delete
-              </button>
+              {permissions.canDelete && (
+                <button
+                  onClick={deleteSelectedEdge}
+                  className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
+                >
+                  Delete
+                </button>
+              )}
             </div>
           )}
 
@@ -855,17 +875,18 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
                 node={node}
                 selected={selectedNodeId === node.id}
                 onSelect={(id) => { setSelectedNodeId(id); setSelectedEdgeId(null) }}
-                onMove={(pos) => updateNodePosition(node.id, pos)}
-                onResolve={(res) => resolveConflict(node.id, res)}
+                onMove={permissions.canEdit ? (pos) => updateNodePosition(node.id, pos) : undefined}
+                onResolve={permissions.canEdit ? (res) => resolveConflict(node.id, res) : undefined}
                 onOpenEvidence={(id) => { setEvidenceNodeId(id); setSelectedNodeId(id) }}
-                onStartEdge={handleStartEdge}
-                onEndEdge={handleEndEdge}
+                onStartEdge={permissions.canEdit ? handleStartEdge : undefined}
+                onEndEdge={permissions.canEdit ? handleEndEdge : undefined}
                 isConnecting={connectingFrom !== null && connectingFrom.nodeId !== node.id}
-                onDelete={deleteNode}
-                onUpdate={updateNodeContent}
+                onDelete={permissions.canDelete ? deleteNode : undefined}
+                onUpdate={permissions.canEdit ? updateNodeContent : undefined}
                 viewingCollaborators={collaborators}
-                onResolveWithAI={resolveConflictWithAI}
-                onApplyResolution={applyConflictResolution}
+                onResolveWithAI={permissions.canEdit ? resolveConflictWithAI : undefined}
+                onApplyResolution={permissions.canEdit ? applyConflictResolution : undefined}
+                readOnly={!permissions.canEdit}
               />
             ))}
 
@@ -900,10 +921,11 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
               node={selectedNode}
               project={project}
               onClose={() => setSelectedNodeId(null)}
-              onNodeUpdate={(updated) => setNodes(prev => prev.map(n => n.id === updated.id ? updated : n))}
+              onNodeUpdate={permissions.canEdit ? (updated) => setNodes(prev => prev.map(n => n.id === updated.id ? updated : n)) : undefined}
               onOpenEvidence={() => setEvidenceNodeId(selectedNode.id)}
               collaborators={collaborators}
               onTypingChange={broadcastTyping}
+              readOnly={!permissions.canChat}
             />
           )}
         </div>

@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import type { CanvasNode, Decision, Evidence } from '@/types'
+import { DecisionLog } from './DecisionLog'
 
 interface Props {
   projectId: string
@@ -10,6 +11,9 @@ interface Props {
   decisions: Decision[]
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
+  onDecisionAdded?: (decision: Decision) => void
+  currentUserId?: string
+  canEdit?: boolean
 }
 
 const TYPE_COLOR: Record<string, string> = {
@@ -47,7 +51,7 @@ function SectionHeader({ label, count }: { label: string; count?: number }) {
   )
 }
 
-export function CanvasSidebar({ projectId, projectName, nodes, decisions, selectedNodeId, onSelectNode }: Props) {
+export function CanvasSidebar({ projectId, projectName, nodes, decisions, selectedNodeId, onSelectNode, onDecisionAdded, currentUserId, canEdit = true }: Props) {
   const allEvidence: Array<Evidence & { nodeTitle: string }> = nodes.flatMap(n =>
     n.evidence.map(e => ({ ...e, nodeTitle: n.title }))
   )
@@ -183,42 +187,13 @@ export function CanvasSidebar({ projectId, projectName, nodes, decisions, select
         </div>
 
         {/* DECISIONS LOG */}
-        <div
-          className="px-4 pt-4 pb-6"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
-        >
-          <SectionHeader label="Decisions log" count={decisions.length} />
-
-          {decisions.length === 0 ? (
-            <p className="text-[12px]" style={{ color: 'rgba(161,161,170,0.35)' }}>No decisions logged yet</p>
-          ) : (
-            <div className="space-y-2.5">
-              {decisions.slice(0, 8).map(d => (
-                <div key={d.id} className="flex items-start gap-2.5">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full mt-[5px] flex-shrink-0"
-                    style={{
-                      backgroundColor:
-                        d.status === 'approved' ? '#34d399' :
-                        d.status === 'rejected' ? '#f87171' :
-                        '#fbbf24',
-                    }}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-medium leading-snug" style={{ color: 'rgba(228,228,231,0.75)' }}>
-                      {d.title}
-                    </p>
-                    {d.rationale && (
-                      <p className="text-[11px] leading-snug line-clamp-1 mt-0.5" style={{ color: 'rgba(161,161,170,0.45)' }}>
-                        {d.rationale}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <DecisionLog
+          projectId={projectId}
+          decisions={decisions}
+          onDecisionAdded={onDecisionAdded}
+          currentUserId={currentUserId}
+          canEdit={canEdit}
+        />
       </div>
     </div>
   )

@@ -160,6 +160,11 @@ export interface Decision {
   rationale?: string
   status?: 'pending' | 'approved' | 'rejected'
   created_at: string
+  created_by?: string
+  // Joined fields for display
+  author_name?: string
+  author_email?: string
+  author_avatar_url?: string
 }
 
 export interface ProjectCollaborator {
@@ -189,4 +194,45 @@ export interface ProjectInvite {
   // Joined fields
   project_name?: string
   inviter_name?: string
+}
+
+// GitHub Integration Types
+export interface GitHubIntegration {
+  id: string
+  user_id: string
+  access_token: string
+  refresh_token?: string
+  github_user_id: number
+  github_username: string
+  github_avatar_url?: string
+  scopes: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface GitHubRepo {
+  id: number
+  full_name: string
+  name: string
+  owner: string
+  private: boolean
+  html_url: string
+  default_branch: string
+}
+
+export interface GitHubIssue {
+  id: number
+  number: number
+  title: string
+  body: string
+  html_url: string
+  state: 'open' | 'closed'
+  labels: { name: string; color: string }[]
+  created_at: string
+}
+
+export interface GitHubExportResult {
+  success: boolean
+  issues: GitHubIssue[]
+  errors?: { taskId: string; error: string }[]
 }
