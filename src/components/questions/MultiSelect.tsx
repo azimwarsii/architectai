@@ -1,6 +1,5 @@
 'use client'
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { Check } from 'lucide-react'
 
 interface Props {
@@ -13,9 +12,7 @@ export function MultiSelect({ options, onConfirm, disabled }: Props) {
   const [selected, setSelected] = useState<string[]>([])
 
   function toggle(opt: string) {
-    setSelected(prev =>
-      prev.includes(opt) ? prev.filter(o => o !== opt) : [...prev, opt]
-    )
+    setSelected(prev => prev.includes(opt) ? prev.filter(o => o !== opt) : [...prev, opt])
   }
 
   return (
@@ -28,26 +25,57 @@ export function MultiSelect({ options, onConfirm, disabled }: Props) {
               key={opt}
               disabled={disabled}
               onClick={() => toggle(opt)}
-              className={`px-4 py-2 rounded-full border text-sm transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${
-                isSelected
-                  ? 'border-purple-400 bg-purple-50 text-purple-700'
-                  : 'border-border hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700'
-              }`}
+              className="flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                border: '2px solid #000',
+                borderRadius: '10px',
+                background: isSelected ? '#F5E642' : '#fff',
+                boxShadow: isSelected ? '4px 4px 0 0 #000' : '3px 3px 0 0 #000',
+                transform: isSelected ? 'translate(-1px,-1px)' : 'none',
+                color: '#000',
+              }}
+              onMouseEnter={e => {
+                if (!disabled && !isSelected) {
+                  (e.currentTarget as HTMLElement).style.background = '#FAFAF0'
+                  ;(e.currentTarget as HTMLElement).style.boxShadow = '4px 4px 0 0 #000'
+                  ;(e.currentTarget as HTMLElement).style.transform = 'translate(-1px,-1px)'
+                }
+              }}
+              onMouseLeave={e => {
+                if (!isSelected) {
+                  (e.currentTarget as HTMLElement).style.background = '#fff'
+                  ;(e.currentTarget as HTMLElement).style.boxShadow = '3px 3px 0 0 #000'
+                  ;(e.currentTarget as HTMLElement).style.transform = 'none'
+                }
+              }}
             >
-              {isSelected && <Check className="w-3 h-3" />}
+              {isSelected && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
               {opt}
             </button>
           )
         })}
       </div>
-      <Button
-        size="sm"
+      <button
         disabled={selected.length === 0 || disabled}
         onClick={() => onConfirm(selected)}
-        className="mt-1"
+        className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        style={{
+          background: '#F4520E', border: '2px solid #000',
+          borderRadius: '10px', boxShadow: '3px 3px 0 0 #000',
+        }}
+        onMouseEnter={e => {
+          if (selected.length > 0 && !disabled) {
+            (e.currentTarget as HTMLElement).style.boxShadow = '5px 5px 0 0 #000'
+            ;(e.currentTarget as HTMLElement).style.transform = 'translate(-1px,-1px)'
+          }
+        }}
+        onMouseLeave={e => {
+          (e.currentTarget as HTMLElement).style.boxShadow = '3px 3px 0 0 #000'
+          ;(e.currentTarget as HTMLElement).style.transform = 'none'
+        }}
       >
-        Confirm ({selected.length} selected)
-      </Button>
+        Confirm {selected.length > 0 && `(${selected.length} selected)`}
+      </button>
     </div>
   )
 }

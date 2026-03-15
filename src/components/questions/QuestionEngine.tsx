@@ -3,24 +3,26 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { QUESTIONS } from '@/lib/questions'
 import type { SpecAnswers } from '@/types'
-import { ChatBubble } from './ChatBubble'
 import { SingleSelect } from './SingleSelect'
 import { MultiSelect } from './MultiSelect'
 import { SpecSummary } from './SpecSummary'
-import { Progress } from '@/components/ui/progress'
 import { createClient } from '@/lib/supabase/client'
+import { ArrowRight, Sparkles } from 'lucide-react'
 
 interface Props {
   projectId: string
   tinyfishReport?: object
 }
 
+interface Message { role: 'ai' | 'user'; text: string }
+
 export function QuestionEngine({ projectId, tinyfishReport }: Props) {
   const router = useRouter()
   const supabase = createClient()
   const chatRef = useRef<HTMLDivElement>(null)
+  const initialized = useRef(false)
 
-  const [messages, setMessages] = useState<Array<{ role: 'ai' | 'user'; text: string }>>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const [answers, setAnswers] = useState<SpecAnswers>({})
   const [stepIndex, setStepIndex] = useState(0)
   const [done, setDone] = useState(false)
@@ -30,14 +32,21 @@ export function QuestionEngine({ projectId, tinyfishReport }: Props) {
   const currentQuestion = activeQuestions[stepIndex]
   const progress = currentQuestion ? currentQuestion.progressPct : 100
 
+  // Init — ref guard prevents double-fire in React Strict Mode
   useEffect(() => {
-    addMessage('ai', "Your idea has been validated by TinyFish. Before we build the spec, I need to understand your technical preferences — takes about 3 minutes.")
+    if (initialized.current) return
+    initialized.current = true
+
+    const intro = "Your idea's been validated. Before we spec it out — how much control do you want over the tech?\n\nThis shapes everything: the stack I recommend, the questions I ask, and how tasks get handed to your coding agent."
+    setMessages([{ role: 'ai', text: intro }])
     setTimeout(() => {
-      if (QUESTIONS[0]) addMessage('ai', QUESTIONS[0].message)
-    }, 800)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+      if (QUESTIONS[0]) {
+        setMessages(prev => [...prev, { role: 'ai', text: QUESTIONS[0].message }])
+      }
+    }, 700)
   }, [])
 
+  // Auto-scroll on new messages
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
@@ -56,12 +65,11 @@ export function QuestionEngine({ projectId, tinyfishReport }: Props) {
     const newAnswers = { ...answers, [q.id]: answer }
     setAnswers(newAnswers)
 
-    // Follow-up message if defined
     const followUp = q.followUp?.(answer, newAnswers)
     if (followUp) {
       await new Promise(r => setTimeout(r, 400))
       addMessage('ai', followUp)
-      await new Promise(r => setTimeout(r, 600))
+      await new Promise(r => setTimeout(r, 500))
     }
 
     const nextIndex = stepIndex + 1
@@ -71,7 +79,7 @@ export function QuestionEngine({ projectId, tinyfishReport }: Props) {
     if (!nextQ) {
       await finalise(newAnswers)
     } else {
-      await new Promise(r => setTimeout(r, followUp ? 200 : 400))
+      await new Promise(r => setTimeout(r, followUp ? 200 : 350))
       addMessage('ai', nextQ.message)
       setStepIndex(nextIndex)
     }
@@ -97,72 +105,142 @@ export function QuestionEngine({ projectId, tinyfishReport }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full max-w-2xl mx-auto">
-      {/* Progress */}
-      <div className="px-5 py-3 border-b">
-        <Progress value={progress} className="h-1 mb-1" />
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Step {stepIndex + 1} of {activeQuestions.length}</span>
-          <span>{currentQuestion?.section || 'Complete'}</span>
+    <div className="flex flex-col h-full" style={{ fontFamily: 'var(--font-host-grotesk), ui-sans-serif, system-ui, sans-serif' }}>
+      {/* Top bar */}
+      <div
+        className="flex-shrink-0 flex items-center justify-between px-6 h-12"
+        style={{ borderBottom: '1px solid rgba(0,0,0,0.07)' }}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
+            style={{ background: '#F5E642', border: '1.5px solid #000', boxShadow: '2px 2px 0 0 #000' }}
+          >
+            <Sparkles className="w-3 h-3 text-black" />
+            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-black" style={{ fontFamily: 'var(--font-geist-mono)' }}>
+              Spec builder
+            </span>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div className="flex items-center gap-3">
+          <span className="text-[12px] font-medium text-black/40" style={{ fontFamily: 'var(--font-geist-mono)' }}>
+            {done ? 'Complete' : `${stepIndex + 1} / ${activeQuestions.length}`}
+          </span>
+          <div className="w-32 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.08)' }}>
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${progress}%`, background: '#F4520E' }}
+            />
+          </div>
         </div>
       </div>
 
       {/* Messages */}
-      <div ref={chatRef} className="flex-1 overflow-y-auto p-5 space-y-3">
+      <div
+        ref={chatRef}
+        className="flex-1 overflow-y-auto px-6 py-6 space-y-4"
+        style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(0,0,0,0.08) transparent' }}
+      >
         {messages.map((m, i) => (
-          <ChatBubble key={i} role={m.role} text={m.text} />
+          <MessageBubble key={i} role={m.role} text={m.text} />
         ))}
+
+        {/* Typing indicator */}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-muted rounded-2xl rounded-tl-sm px-4 py-2.5">
-              <div className="flex gap-1 items-center">
-                <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
+            <div
+              className="flex items-center gap-1 px-4 py-3 rounded-2xl rounded-tl-sm"
+              style={{ background: '#F5F5F3', border: '1.5px solid rgba(0,0,0,0.08)' }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full animate-bounce bg-black/30" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-bounce bg-black/30" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-bounce bg-black/30" style={{ animationDelay: '300ms' }} />
             </div>
           </div>
         )}
+
         {done && <SpecSummary answers={answers} />}
       </div>
 
-      {/* Options */}
+      {/* Answer options */}
       {!done && currentQuestion && (
-        <div className="px-5 py-4 border-t">
+        <div
+          className="flex-shrink-0 px-6 py-4"
+          style={{ borderTop: '1.5px solid rgba(0,0,0,0.07)', background: '#FAFAF8' }}
+        >
           {currentQuestion.type === 'single' && (
-            <SingleSelect
-              options={currentQuestion.options!}
-              onSelect={handleAnswer}
-              disabled={loading}
-            />
+            <SingleSelect options={currentQuestion.options!} onSelect={handleAnswer} disabled={loading} />
           )}
           {currentQuestion.type === 'multi' && (
-            <MultiSelect
-              options={currentQuestion.options!}
-              onConfirm={handleAnswer}
-              disabled={loading}
-            />
+            <MultiSelect options={currentQuestion.options!} onConfirm={handleAnswer} disabled={loading} />
           )}
         </div>
       )}
 
-      {/* CTA after done */}
+      {/* Done CTA */}
       {done && (
-        <div className="px-5 py-4 border-t flex gap-3 flex-wrap">
-          {['Review stack', 'See page architecture', 'Jump to agent tasks', 'Open canvas'].map(label => (
+        <div
+          className="flex-shrink-0 px-6 py-4 flex gap-3 flex-wrap"
+          style={{ borderTop: '1.5px solid rgba(0,0,0,0.07)', background: '#FAFAF8' }}
+        >
+          <button
+            onClick={() => router.push(`/project/${projectId}/canvas`)}
+            className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-white transition-all"
+            style={{
+              background: '#000', border: '2px solid #000',
+              borderRadius: '10px', boxShadow: '3px 3px 0 0 #F5E642',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '5px 5px 0 0 #F5E642'; (e.currentTarget as HTMLElement).style.transform = 'translate(-1px,-1px)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '3px 3px 0 0 #F5E642'; (e.currentTarget as HTMLElement).style.transform = 'none' }}
+          >
+            Open canvas <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+          {['Review stack', 'See page architecture', 'Agent tasks'].map(label => (
             <button
               key={label}
-              onClick={() => label === 'Open canvas'
-                ? router.push(`/project/${projectId}/canvas`)
-                : null
-              }
-              className="text-sm px-4 py-2 rounded-full border border-border hover:bg-muted transition-colors"
+              className="px-4 py-2.5 text-[13px] font-semibold text-black transition-all"
+              style={{
+                border: '2px solid #000', borderRadius: '10px',
+                background: '#fff', boxShadow: '3px 3px 0 0 #000',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '5px 5px 0 0 #000'; (e.currentTarget as HTMLElement).style.transform = 'translate(-1px,-1px)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '3px 3px 0 0 #000'; (e.currentTarget as HTMLElement).style.transform = 'none' }}
             >
               {label}
             </button>
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function MessageBubble({ role, text }: { role: 'ai' | 'user'; text: string }) {
+  const isAI = role === 'ai'
+  const formatted = text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br/>')
+
+  return (
+    <div className={`flex ${isAI ? 'justify-start' : 'justify-end'}`}>
+      <div
+        className="max-w-[82%] px-4 py-3 text-[14px] leading-relaxed font-medium"
+        style={isAI ? {
+          background: '#F5F5F3',
+          border: '1.5px solid rgba(0,0,0,0.08)',
+          borderRadius: '16px',
+          borderTopLeftRadius: 4,
+          color: '#1a1a1a',
+        } : {
+          background: '#1a1a1a',
+          borderRadius: '16px',
+          borderTopRightRadius: 4,
+          color: '#fff',
+        }}
+        dangerouslySetInnerHTML={{ __html: formatted }}
+      />
     </div>
   )
 }

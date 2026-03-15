@@ -14,20 +14,12 @@ export default async function CanvasPage({ params }: { params: Promise<{ id: str
 
   if (!project) redirect('/dashboard')
 
-  const { data: nodes } = await supabase
-    .from('canvas_nodes')
-    .select('*')
-    .eq('project_id', id)
-
-  const { data: edges } = await supabase
-    .from('canvas_edges')
-    .select('*')
-    .eq('project_id', id)
-
-  const { data: tasks } = await supabase
-    .from('dev_tasks')
-    .select('*')
-    .eq('project_id', id)
+  const [{ data: nodes }, { data: edges }, { data: tasks }, { data: decisions }] = await Promise.all([
+    supabase.from('canvas_nodes').select('*').eq('project_id', id),
+    supabase.from('canvas_edges').select('*').eq('project_id', id),
+    supabase.from('dev_tasks').select('*').eq('project_id', id),
+    supabase.from('decisions').select('*').eq('project_id', id).order('created_at', { ascending: false }),
+  ])
 
   return (
     <CanvasBoard
@@ -35,6 +27,7 @@ export default async function CanvasPage({ params }: { params: Promise<{ id: str
       initialNodes={nodes || []}
       initialEdges={edges || []}
       initialTasks={tasks || []}
+      initialDecisions={decisions || []}
     />
   )
 }

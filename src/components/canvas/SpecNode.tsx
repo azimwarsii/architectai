@@ -5,24 +5,25 @@ import type { CanvasNode } from '@/types'
 interface Props {
   node: CanvasNode
   selected: boolean
-  onSelect: () => void
+  onSelect: (id: string) => void
   onMove: (pos: { x: number; y: number }) => void
   onResolve: (resolution: string) => void
 }
 
-const typeConfig: Record<string, { bg: string; border: string; badge: string; label: string }> = {
-  pain_point: { bg: 'bg-red-50', border: 'border-red-200', badge: 'bg-red-100 text-red-700', label: 'Pain point' },
-  feature: { bg: 'bg-teal-50', border: 'border-teal-200', badge: 'bg-teal-100 text-teal-700', label: 'Feature' },
-  ui_change: { bg: 'bg-purple-50', border: 'border-purple-200', badge: 'bg-purple-100 text-purple-700', label: 'UI change' },
-  data_model: { bg: 'bg-blue-50', border: 'border-blue-200', badge: 'bg-blue-100 text-blue-700', label: 'Data model' },
-  dev_task: { bg: 'bg-amber-50', border: 'border-amber-200', badge: 'bg-amber-100 text-amber-700', label: 'Dev task' },
-  conflict: { bg: 'bg-red-50', border: 'border-red-300', badge: 'bg-red-100 text-red-700', label: 'Conflict' },
-  decision: { bg: 'bg-purple-50', border: 'border-purple-200', badge: 'bg-purple-100 text-purple-700', label: 'Decision' },
-  evidence: { bg: 'bg-gray-50', border: 'border-gray-200', badge: 'bg-gray-100 text-gray-700', label: 'Evidence' },
+const typeConfig: Record<string, { dot: string; badgeBg: string; badgeText: string; label: string; border: string; selectedBorder: string }> = {
+  pain_point: { dot: '#f87171', badgeBg: 'rgba(239,68,68,0.15)', badgeText: '#fca5a5', label: 'Pain point', border: 'rgba(239,68,68,0.2)', selectedBorder: 'rgba(239,68,68,0.6)' },
+  feature:    { dot: '#34d399', badgeBg: 'rgba(16,185,129,0.15)', badgeText: '#6ee7b7', label: 'Feature', border: 'rgba(16,185,129,0.2)', selectedBorder: 'rgba(16,185,129,0.6)' },
+  ui_change:  { dot: '#c084fc', badgeBg: 'rgba(168,85,247,0.15)', badgeText: '#d8b4fe', label: 'UI change', border: 'rgba(168,85,247,0.2)', selectedBorder: 'rgba(168,85,247,0.6)' },
+  data_model: { dot: '#60a5fa', badgeBg: 'rgba(59,130,246,0.15)', badgeText: '#93c5fd', label: 'Data model', border: 'rgba(59,130,246,0.2)', selectedBorder: 'rgba(59,130,246,0.6)' },
+  dev_task:   { dot: '#fbbf24', badgeBg: 'rgba(245,158,11,0.15)', badgeText: '#fde68a', label: 'Dev task', border: 'rgba(245,158,11,0.2)', selectedBorder: 'rgba(245,158,11,0.6)' },
+  conflict:   { dot: '#f87171', badgeBg: 'rgba(239,68,68,0.15)', badgeText: '#fca5a5', label: 'Conflict', border: 'rgba(239,68,68,0.3)', selectedBorder: 'rgba(239,68,68,0.7)' },
+  decision:   { dot: '#a78bfa', badgeBg: 'rgba(139,92,246,0.15)', badgeText: '#c4b5fd', label: 'Decision', border: 'rgba(139,92,246,0.2)', selectedBorder: 'rgba(139,92,246,0.6)' },
+  evidence:   { dot: '#9ca3af', badgeBg: 'rgba(156,163,175,0.12)', badgeText: '#d1d5db', label: 'Evidence', border: 'rgba(156,163,175,0.15)', selectedBorder: 'rgba(156,163,175,0.5)' },
 }
 
 export function SpecNode({ node, selected, onSelect, onMove, onResolve }: Props) {
   const dragStart = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null)
+  const didDrag = useRef(false)
   const [isDragging, setIsDragging] = useState(false)
   const [localPos, setLocalPos] = useState(node.position)
 
@@ -30,13 +31,8 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve }: Props)
 
   function onPointerDown(e: React.PointerEvent) {
     e.stopPropagation()
-    onSelect()
-    dragStart.current = {
-      x: e.clientX,
-      y: e.clientY,
-      nodeX: localPos.x,
-      nodeY: localPos.y,
-    }
+    didDrag.current = false
+    dragStart.current = { x: e.clientX, y: e.clientY, nodeX: localPos.x, nodeY: localPos.y }
     setIsDragging(true)
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
   }
@@ -45,57 +41,78 @@ export function SpecNode({ node, selected, onSelect, onMove, onResolve }: Props)
     if (!dragStart.current) return
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
-    setLocalPos({
-      x: dragStart.current.nodeX + dx,
-      y: dragStart.current.nodeY + dy,
-    })
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true
+    setLocalPos({ x: dragStart.current.nodeX + dx, y: dragStart.current.nodeY + dy })
   }
 
-  function onPointerUp() {
+  function onPointerUp(e: React.PointerEvent) {
+    e.stopPropagation()
     if (!dragStart.current) return
     dragStart.current = null
     setIsDragging(false)
-    onMove(localPos)
+    if (!didDrag.current) {
+      onSelect(node.id)
+    } else {
+      onMove(localPos)
+    }
+    didDrag.current = false
   }
 
   return (
     <div
-      className={`absolute select-none rounded-xl border-2 p-3 w-52 cursor-pointer shadow-sm transition-shadow ${cfg.bg} ${
-        selected ? 'border-purple-500 shadow-md' : cfg.border
-      } ${isDragging ? 'shadow-lg z-10' : ''}`}
-      style={{ left: localPos.x, top: localPos.y }}
+      className={`absolute select-none rounded-2xl p-3.5 w-[210px] cursor-pointer transition-all duration-150 ${
+        isDragging ? 'z-20 scale-[1.03]' : 'z-10'
+      }`}
+      style={{
+        left: localPos.x,
+        top: localPos.y,
+        background: selected ? '#1c1d2a' : '#161720',
+        border: `1px solid ${selected ? cfg.selectedBorder : cfg.border}`,
+        boxShadow: selected
+          ? `0 0 0 1px ${cfg.selectedBorder}, 0 8px 32px rgba(0,0,0,0.4)`
+          : isDragging
+          ? '0 16px 40px rgba(0,0,0,0.5)'
+          : '0 2px 12px rgba(0,0,0,0.3)',
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      // Prevent canvas onClick from firing when clicking a node
+      onClick={(e) => e.stopPropagation()}
     >
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${cfg.badge}`}>
+      {/* Type badge row */}
+      <div className="flex items-center gap-2 mb-2.5">
+        <span
+          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: cfg.dot }}
+        />
+        <span
+          className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-md"
+          style={{ background: cfg.badgeBg, color: cfg.badgeText }}
+        >
           {cfg.label}
         </span>
         {node.type === 'conflict' && (
-          <span className="w-2 h-2 rounded-full bg-red-500 ml-auto animate-pulse" />
+          <span className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
         )}
         {node.evidence.length > 0 && (
-          <span className="text-[10px] text-muted-foreground ml-auto">{node.evidence.length} evidence</span>
+          <span className="ml-auto text-[10px] text-zinc-600">{node.evidence.length} ev</span>
         )}
       </div>
 
       {/* Title */}
-      <p className="text-sm font-medium leading-snug mb-1">{node.title}</p>
+      <p className="text-[13px] font-semibold leading-snug text-zinc-100 mb-1.5">{node.title}</p>
 
-      {/* Body preview */}
+      {/* Body */}
       {node.body && (
-        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{node.body}</p>
+        <p className="text-[12px] text-zinc-500 leading-relaxed line-clamp-2">{node.body}</p>
       )}
 
-      {/* Status */}
+      {/* Status chip */}
       {node.status !== 'open' && (
-        <div className="mt-2 pt-2 border-t border-current border-opacity-10">
-          <span className={`text-[10px] font-medium capitalize ${
-            node.status === 'resolved' ? 'text-teal-600' :
-            node.status === 'approved' ? 'text-teal-700' :
-            'text-amber-600'
+        <div className="mt-2.5 pt-2 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <span className={`text-[11px] font-medium capitalize ${
+            node.status === 'resolved' || node.status === 'approved' ? 'text-emerald-400' : 'text-amber-400'
           }`}>
             {node.status}
           </span>

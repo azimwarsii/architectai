@@ -147,3 +147,13 @@ export interface Collaborator {
   cursor?: { x: number; y: number }
   color: string
 }
+
+export interface Decision {
+  id: string
+  project_id: string
+  node_id?: string
+  title: string
+  rationale?: string
+  status?: 'pending' | 'approved' | 'rejected'
+  created_at: string
+}
