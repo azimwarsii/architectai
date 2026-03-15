@@ -1,6 +1,7 @@
 'use client'
 import { AppSidebar } from '@/components/shared/AppSidebar'
 import { QuestionEngine } from './QuestionEngine'
+import { ResearchSummaryBar } from './ResearchSummaryBar'
 
 interface Props {
   projectId: string
@@ -15,6 +16,7 @@ export function QuestionsPageClient({ projectId, tinyfishReport }: Props) {
     >
       <AppSidebar currentProjectId={projectId} />
       <div className="flex-1 flex flex-col overflow-hidden bg-white">
+        <ResearchSummaryBar tinyfishReport={tinyfishReport} />
         <QuestionEngine projectId={projectId} tinyfishReport={tinyfishReport} />
       </div>
     </div>

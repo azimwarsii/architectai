@@ -36,9 +36,12 @@ export function AppSidebar({ currentProjectId, onNewProject }: Props) {
   const [openProjectMenu, setOpenProjectMenu] = useState<string | null>(null)
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const menuRef = useRef<HTMLDivElement>(null)
+  const [newProjectIds, setNewProjectIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const sb = supabase
+    let channel: ReturnType<typeof sb.channel> | null = null
+
     sb.auth.getUser().then(({ data: { user: u } }) => {
       if (!u) return
       const email = u.email ?? ''
@@ -48,7 +51,32 @@ export function AppSidebar({ currentProjectId, onNewProject }: Props) {
       sb.from('projects').select('*').eq('user_id', u.id)
         .order('updated_at', { ascending: false })
         .then(({ data }) => setProjects(data || []))
+
+      // Realtime: projects appear in sidebar only once they have a name
+      channel = sb.channel(`sidebar-projects-${u.id}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'projects', filter: `user_id=eq.${u.id}` }, (payload) => {
+          const p = payload.new as Project
+          if (!p.name?.trim()) return // don't show nameless draft projects
+          setProjects(prev => prev.some(x => x.id === p.id) ? prev : [p, ...prev])
+          setNewProjectIds(ids => new Set([...ids, p.id]))
+          setTimeout(() => setNewProjectIds(ids => { const n = new Set(ids); n.delete(p.id); return n }), 2500)
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'projects', filter: `user_id=eq.${u.id}` }, (payload) => {
+          const p = payload.new as Project
+          if (!p.name?.trim()) return
+          setProjects(prev => {
+            const exists = prev.some(x => x.id === p.id)
+            if (exists) return prev.map(x => x.id === p.id ? p : x)
+            // Project just got named — gently prepend with highlight
+            setNewProjectIds(ids => new Set([...ids, p.id]))
+            setTimeout(() => setNewProjectIds(ids => { const n = new Set(ids); n.delete(p.id); return n }), 2500)
+            return [p, ...prev]
+          })
+        })
+        .subscribe()
     })
+
+    return () => { if (channel) supabase.removeChannel(channel) }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -74,8 +102,8 @@ export function AppSidebar({ currentProjectId, onNewProject }: Props) {
 
   function navigateToProject(p: Project) {
     if (p.status === 'canvas') router.push(`/project/${p.id}/canvas`)
-    else if (p.status === 'intake') router.push(`/project/${p.id}/validate`)
-    else router.push(`/project/${p.id}/questions`)
+    else if (p.status === 'intake') router.push(`/project/${p.id}/ideate`)
+    else router.push(`/project/${p.id}/canvas`)
   }
 
   function openMenuAt(e: React.MouseEvent, id: string) {
@@ -96,7 +124,7 @@ export function AppSidebar({ currentProjectId, onNewProject }: Props) {
     else router.push('/new')
   }
 
-  const filtered = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+  const filtered = projects.filter(p => p.name?.trim() && p.name.toLowerCase().includes(search.toLowerCase()))
 
   return (
     <>
@@ -227,13 +255,14 @@ export function AppSidebar({ currentProjectId, onNewProject }: Props) {
                 return (
                   <div
                     key={p.id}
-                    className="relative flex items-center gap-2 rounded-lg transition-colors group"
+                    className="relative flex items-center gap-2 rounded-lg transition-all group"
                     style={{
                       padding: '6px 6px 6px 10px',
-                      background: isActive ? 'rgba(255,255,255,0.1)' : 'transparent',
+                      background: isActive ? 'rgba(255,255,255,0.1)' : newProjectIds.has(p.id) ? 'rgba(245,230,66,0.12)' : 'transparent',
+                      transition: 'background 0.6s ease',
                     }}
                     onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)' }}
-                    onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                    onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = newProjectIds.has(p.id) ? 'rgba(245,230,66,0.12)' : 'transparent' }}
                   >
                     <span
                       className="w-2 h-2 rounded-full flex-shrink-0"

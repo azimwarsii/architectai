@@ -7,6 +7,7 @@ import { ChatPanel } from './ChatPanel'
 import { CanvasSidebar } from './CanvasSidebar'
 import { CollabCursors } from './CollabCursors'
 import { TaskExport } from './TaskExport'
+import { QuestionEngine } from '@/components/questions/QuestionEngine'
 import { Plus, FileDown, Settings, LogOut } from 'lucide-react'
 
 interface Props {
@@ -32,6 +33,8 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
   const [currentUserInitials, setCurrentUserInitials] = useState('U')
   const [showUserMenu, setShowUserMenu] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
+  const [selfCursor, setSelfCursor] = useState<{ x: number; y: number } | null>(null)
+  const [showOnboarding, setShowOnboarding] = useState(project.status !== 'canvas')
 
   // Get current user so we can exclude our own cursor and show avatar
   useEffect(() => {
@@ -131,12 +134,18 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
     const handleMouseMove = (e: MouseEvent) => {
       if (!canvasEl) return
       const rect = canvasEl.getBoundingClientRect()
-      channel.track({ cursor: { x: e.clientX - rect.left, y: e.clientY - rect.top } })
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+      channel.track({ cursor: { x, y } })
+      setSelfCursor({ x, y })
     }
+    const handleMouseLeave = () => setSelfCursor(null)
 
     canvasEl?.addEventListener('mousemove', handleMouseMove)
+    canvasEl?.addEventListener('mouseleave', handleMouseLeave)
     return () => {
       canvasEl?.removeEventListener('mousemove', handleMouseMove)
+      canvasEl?.removeEventListener('mouseleave', handleMouseLeave)
       supabase.removeChannel(channel)
     }
   }, [project.id, supabase])
@@ -304,6 +313,7 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
               background: '#0d0e14',
               backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.055) 1px, transparent 1px)',
               backgroundSize: '28px 28px',
+              cursor: 'none',
             }}
             onClick={() => setSelectedNodeId(null)}
           >
@@ -336,8 +346,17 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
               />
             ))}
 
-            {/* Live cursors */}
+            {/* Live cursors (other collaborators only) */}
             <CollabCursors collaborators={collaborators} />
+
+            {/* Self cursor — replaces native cursor over canvas */}
+            {selfCursor && (
+              <div className="absolute pointer-events-none z-40" style={{ left: selfCursor.x, top: selfCursor.y }}>
+                <svg width="18" height="22" viewBox="0 0 16 20" fill="none">
+                  <path d="M0 0L0 16L4.5 11.5L7 18L9 17.5L6.5 11L12 11L0 0Z" fill="#F5E642" stroke="#000" strokeWidth="1.5" />
+                </svg>
+              </div>
+            )}
 
             {/* Empty state */}
             {nodes.length === 0 && (
@@ -371,6 +390,36 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
           projectId={project.id}
           onClose={() => setShowTasks(false)}
         />
+      )}
+
+      {/* Onboarding overlay — shown until spec questions are answered */}
+      {showOnboarding && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{
+            background: '#0d0e14',
+            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.045) 1px, transparent 1px)',
+            backgroundSize: '28px 28px',
+          }}
+        >
+          <div
+            className="relative w-full flex flex-col bg-white"
+            style={{
+              maxWidth: 680,
+              maxHeight: '88vh',
+              margin: '0 24px',
+              borderRadius: 20,
+              border: '2px solid #000',
+              boxShadow: '8px 8px 0 0 #F5E642',
+              overflow: 'hidden',
+            }}
+          >
+            <QuestionEngine
+              projectId={project.id}
+              onComplete={() => setShowOnboarding(false)}
+            />
+          </div>
+        </div>
       )}
     </div>
   )

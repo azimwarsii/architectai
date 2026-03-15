@@ -12,11 +12,12 @@ import { ArrowRight, Sparkles } from 'lucide-react'
 interface Props {
   projectId: string
   tinyfishReport?: object
+  onComplete?: () => void
 }
 
 interface Message { role: 'ai' | 'user'; text: string }
 
-export function QuestionEngine({ projectId, tinyfishReport }: Props) {
+export function QuestionEngine({ projectId, tinyfishReport, onComplete }: Props) {
   const router = useRouter()
   const supabase = createClient()
   const chatRef = useRef<HTMLDivElement>(null)
@@ -186,7 +187,7 @@ export function QuestionEngine({ projectId, tinyfishReport }: Props) {
           style={{ borderTop: '1.5px solid rgba(0,0,0,0.07)', background: '#FAFAF8' }}
         >
           <button
-            onClick={() => router.push(`/project/${projectId}/canvas`)}
+            onClick={() => onComplete ? onComplete() : router.push(`/project/${projectId}/canvas`)}
             className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-white transition-all"
             style={{
               background: '#000', border: '2px solid #000',
@@ -195,7 +196,7 @@ export function QuestionEngine({ projectId, tinyfishReport }: Props) {
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '5px 5px 0 0 #F5E642'; (e.currentTarget as HTMLElement).style.transform = 'translate(-1px,-1px)' }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '3px 3px 0 0 #F5E642'; (e.currentTarget as HTMLElement).style.transform = 'none' }}
           >
-            Open canvas <ArrowRight className="w-3.5 h-3.5" />
+            Start building <ArrowRight className="w-3.5 h-3.5" />
           </button>
           {['Review stack', 'See page architecture', 'Agent tasks'].map(label => (
             <button
