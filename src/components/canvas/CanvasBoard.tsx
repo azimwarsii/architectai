@@ -7,6 +7,7 @@ import { ChatPanel } from './ChatPanel'
 import { CanvasSidebar } from './CanvasSidebar'
 import { CollabCursors } from './CollabCursors'
 import { TaskExport } from './TaskExport'
+import { EvidenceDrawer } from './EvidenceDrawer'
 import { Plus, FileDown, Settings, LogOut } from 'lucide-react'
 
 interface Props {
@@ -26,12 +27,18 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
   const [tasks] = useState<DevTask[]>(initialTasks)
   const [decisions, setDecisions] = useState<Decision[]>(initialDecisions)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
+  const [evidenceNodeId, setEvidenceNodeId] = useState<string | null>(null)
   const [showTasks, setShowTasks] = useState(false)
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [currentUserInitials, setCurrentUserInitials] = useState('U')
   const [showUserMenu, setShowUserMenu] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
+
+  // Edge creation state
+  const [connectingFrom, setConnectingFrom] = useState<{ nodeId: string; side: 'left' | 'right' } | null>(null)
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null)
 
   // Get current user so we can exclude our own cursor and show avatar
   useEffect(() => {
@@ -58,8 +65,10 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
   }
 
   const selectedNode = nodes.find(n => n.id === selectedNodeId) ?? null
+  const evidenceNode =
+    evidenceNodeId != null ? (nodes.find(n => n.id === evidenceNodeId) ?? null) : null
 
-  // Subscribe to realtime node changes
+  // Subscribe to realtime node and edge changes
   useEffect(() => {
     const channel = supabase
       .channel(`canvas:${project.id}`)
@@ -83,6 +92,23 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
         }
       })
       .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'canvas_edges',
+        filter: `project_id=eq.${project.id}`,
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setEdges(prev =>
+            prev.some(e => e.id === (payload.new as CanvasEdge).id)
+              ? prev
+              : [...prev, payload.new as CanvasEdge]
+          )
+        } else if (payload.eventType === 'DELETE') {
+          setEdges(prev => prev.filter(e => e.id !== payload.old.id))
+          if (selectedEdgeId === payload.old.id) setSelectedEdgeId(null)
+        }
+      })
+      .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'decisions',
@@ -97,7 +123,7 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [project.id, supabase])
+  }, [project.id, supabase, selectedEdgeId])
 
   // Track live cursor positions via Supabase presence
   useEffect(() => {
@@ -177,6 +203,129 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
     }
   }
 
+  async function deleteNode(nodeId: string) {
+    // First delete any edges connected to this node
+    const connectedEdges = edges.filter(e => e.source_id === nodeId || e.target_id === nodeId)
+    for (const edge of connectedEdges) {
+      await supabase.from('canvas_edges').delete().eq('id', edge.id)
+    }
+    setEdges(prev => prev.filter(e => e.source_id !== nodeId && e.target_id !== nodeId))
+
+    // Then delete the node
+    await supabase.from('canvas_nodes').delete().eq('id', nodeId)
+    setNodes(prev => prev.filter(n => n.id !== nodeId))
+
+    if (selectedNodeId === nodeId) setSelectedNodeId(null)
+    if (evidenceNodeId === nodeId) setEvidenceNodeId(null)
+  }
+
+  async function updateNodeContent(nodeId: string, updates: { title?: string; body?: string }) {
+    const { data, error } = await supabase
+      .from('canvas_nodes')
+      .update(updates)
+      .eq('id', nodeId)
+      .select()
+      .single()
+
+    if (!error && data) {
+      setNodes(prev => prev.map(n => n.id === nodeId ? data as CanvasNode : n))
+    }
+  }
+
+  // Edge creation handlers
+  function handleStartEdge(nodeId: string, side: 'left' | 'right') {
+    setConnectingFrom({ nodeId, side })
+    setSelectedNodeId(null)
+    setSelectedEdgeId(null)
+  }
+
+  async function handleEndEdge(targetNodeId: string) {
+    if (!connectingFrom || connectingFrom.nodeId === targetNodeId) {
+      setConnectingFrom(null)
+      setMousePos(null)
+      return
+    }
+
+    try {
+      const res = await fetch('/api/edges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: project.id,
+          source_id: connectingFrom.nodeId,
+          target_id: targetNodeId,
+        }),
+      })
+
+      if (res.ok) {
+        const newEdge = await res.json()
+        setEdges(prev =>
+          prev.some(e => e.id === newEdge.id) ? prev : [...prev, newEdge]
+        )
+      }
+    } catch (err) {
+      console.error('Failed to create edge:', err)
+    }
+
+    setConnectingFrom(null)
+    setMousePos(null)
+  }
+
+  async function deleteSelectedEdge() {
+    if (!selectedEdgeId) return
+
+    try {
+      await fetch(`/api/edges?id=${selectedEdgeId}`, { method: 'DELETE' })
+      setEdges(prev => prev.filter(e => e.id !== selectedEdgeId))
+      setSelectedEdgeId(null)
+    } catch (err) {
+      console.error('Failed to delete edge:', err)
+    }
+  }
+
+  // Handle keyboard events for edge/node deletion
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Don't handle delete if user is typing in an input/textarea
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEdgeId) {
+        e.preventDefault()
+        deleteSelectedEdge()
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodeId && !selectedEdgeId) {
+        e.preventDefault()
+        deleteNode(selectedNodeId)
+      }
+      if (e.key === 'Escape') {
+        setConnectingFrom(null)
+        setMousePos(null)
+        setSelectedEdgeId(null)
+        setSelectedNodeId(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedEdgeId, selectedNodeId])
+
+  // Track mouse position during edge creation
+  function handleCanvasMouseMove(e: React.MouseEvent) {
+    if (connectingFrom && canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect()
+      setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+    }
+  }
+
+  function handleCanvasClick() {
+    setSelectedNodeId(null)
+    setSelectedEdgeId(null)
+    if (connectingFrom) {
+      setConnectingFrom(null)
+      setMousePos(null)
+    }
+  }
+
   const onlineCount = collaborators.length + 1
 
   return (
@@ -226,6 +375,19 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
             <Plus className="w-3 h-3" />
             Add node
           </button>
+
+          {/* Edge selected indicator */}
+          {selectedEdgeId && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-violet-500/10 border border-violet-500/30">
+              <span className="text-[11px] text-violet-300">Edge selected</span>
+              <button
+                onClick={deleteSelectedEdge}
+                className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          )}
 
           <button
             onClick={() => setShowTasks(true)}
@@ -304,24 +466,69 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
               background: '#0d0e14',
               backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.055) 1px, transparent 1px)',
               backgroundSize: '28px 28px',
+              cursor: connectingFrom ? 'crosshair' : 'default',
             }}
-            onClick={() => setSelectedNodeId(null)}
+            onClick={handleCanvasClick}
+            onMouseMove={handleCanvasMouseMove}
           >
             {/* SVG connectors */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none">
+            <svg className="absolute inset-0 w-full h-full">
               {edges.map(edge => {
                 const src = nodes.find(n => n.id === edge.source_id)
                 const tgt = nodes.find(n => n.id === edge.target_id)
                 if (!src || !tgt) return null
+                const isSelected = selectedEdgeId === edge.id
                 return (
-                  <line
-                    key={edge.id}
-                    x1={src.position.x + 104} y1={src.position.y + 40}
-                    x2={tgt.position.x + 104} y2={tgt.position.y + 40}
-                    stroke="rgba(255,255,255,0.07)" strokeWidth="1.5" strokeDasharray="5 4"
-                  />
+                  <g key={edge.id}>
+                    {/* Invisible wider line for easier clicking */}
+                    <line
+                      x1={src.position.x + 210} y1={src.position.y + 50}
+                      x2={tgt.position.x} y2={tgt.position.y + 50}
+                      stroke="transparent"
+                      strokeWidth="12"
+                      style={{ cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setSelectedEdgeId(edge.id)
+                        setSelectedNodeId(null)
+                      }}
+                    />
+                    {/* Visible edge line */}
+                    <line
+                      x1={src.position.x + 210} y1={src.position.y + 50}
+                      x2={tgt.position.x} y2={tgt.position.y + 50}
+                      stroke={isSelected ? '#8b5cf6' : 'rgba(255,255,255,0.15)'}
+                      strokeWidth={isSelected ? 2 : 1.5}
+                      strokeDasharray={isSelected ? 'none' : '5 4'}
+                      style={{ pointerEvents: 'none' }}
+                    />
+                    {/* Arrow at target */}
+                    <polygon
+                      points={`${tgt.position.x},${tgt.position.y + 50} ${tgt.position.x - 8},${tgt.position.y + 46} ${tgt.position.x - 8},${tgt.position.y + 54}`}
+                      fill={isSelected ? '#8b5cf6' : 'rgba(255,255,255,0.15)'}
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  </g>
                 )
               })}
+
+              {/* Preview line during edge creation */}
+              {connectingFrom && mousePos && (() => {
+                const srcNode = nodes.find(n => n.id === connectingFrom.nodeId)
+                if (!srcNode) return null
+                const startX = connectingFrom.side === 'right' ? srcNode.position.x + 210 : srcNode.position.x
+                const startY = srcNode.position.y + 50
+                return (
+                  <line
+                    x1={startX} y1={startY}
+                    x2={mousePos.x} y2={mousePos.y}
+                    stroke="#8b5cf6"
+                    strokeWidth="2"
+                    strokeDasharray="6 4"
+                    style={{ pointerEvents: 'none' }}
+                  />
+                )
+              })()}
             </svg>
 
             {/* Nodes */}
@@ -330,9 +537,15 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
                 key={node.id}
                 node={node}
                 selected={selectedNodeId === node.id}
-                onSelect={(id) => setSelectedNodeId(id)}
+                onSelect={(id) => { setSelectedNodeId(id); setSelectedEdgeId(null) }}
                 onMove={(pos) => updateNodePosition(node.id, pos)}
                 onResolve={(res) => resolveConflict(node.id, res)}
+                onOpenEvidence={(id) => { setEvidenceNodeId(id); setSelectedNodeId(id) }}
+                onStartEdge={handleStartEdge}
+                onEndEdge={handleEndEdge}
+                isConnecting={connectingFrom !== null && connectingFrom.nodeId !== node.id}
+                onDelete={deleteNode}
+                onUpdate={updateNodeContent}
               />
             ))}
 
@@ -352,6 +565,15 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
             )}
           </div>
 
+          {/* Evidence drawer */}
+          {evidenceNode && (
+            <EvidenceDrawer
+              node={evidenceNode}
+              onClose={() => setEvidenceNodeId(null)}
+              onNodeUpdate={(updated) => setNodes(prev => prev.map(n => n.id === updated.id ? updated : n))}
+            />
+          )}
+
           {/* Chat panel */}
           {selectedNode && (
             <ChatPanel
@@ -359,6 +581,7 @@ export function CanvasBoard({ project, initialNodes, initialEdges, initialTasks,
               project={project}
               onClose={() => setSelectedNodeId(null)}
               onNodeUpdate={(updated) => setNodes(prev => prev.map(n => n.id === updated.id ? updated : n))}
+              onOpenEvidence={() => setEvidenceNodeId(selectedNode.id)}
             />
           )}
         </div>
